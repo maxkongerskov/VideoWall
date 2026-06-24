@@ -1,0 +1,599 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		26F6CFF0998E77A52B71181E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CC11CBB274AD45CA663DF30D /* Assets.xcassets */; };
+		2751744EB137B7CBA7C35953 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 451BA99360BFB409A239FE03 /* IOKit.framework */; };
+		289488753E9E5B220DE56B6F /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E5DAEFACDED10AA83400FC49 /* ServiceManagement.framework */; };
+		2E2EE5782B74403D1CCBCB2D /* VideoWallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3CC4F0360EBAF98C516E44 /* VideoWallTests.swift */; };
+		3294D18012F7C283056A7253 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 005E0F9F01A0F2BD23353058 /* LibraryView.swift */; };
+		439F4B136CED67A31E7EAE8A /* VideoCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A4F1FD33011E17E3EFB111 /* VideoCard.swift */; };
+		459FDD676D0EAA618F268437 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717852CC0871A1C49069722A /* SettingsView.swift */; };
+		51B6BAD28443230FF48C061F /* VideoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE19B46AD205368A3D089C42 /* VideoItem.swift */; };
+		640AB9DD8D19D59B1CA9F2A9 /* VideoLibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8159E67ECCB7254DD4143D09 /* VideoLibraryManager.swift */; };
+		642FEA2E67A3DF3AF334FC8C /* VideoWallApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7005145B8310F385D25C7B5D /* VideoWallApp.swift */; };
+		88FFBDA5CC755A74B60BB4EF /* ScreenRecordingMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37A16D439636DF640396EDD0 /* ScreenRecordingMonitor.swift */; };
+		9E865E500BA9B6769BDE85D7 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 53DF54D49B268072DCC0DB34 /* AVFoundation.framework */; };
+		A9EE0204FBF219126F89BEF6 /* MenuBarContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF040BA5B129CA144D4B567F /* MenuBarContentView.swift */; };
+		AAF7412DAB507FD8DE8EDB59 /* SnapshotMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C24EF5CE0FF532E294A05D /* SnapshotMirror.swift */; };
+		AC5F67F47397703E15906297 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95B76DC299B170A92C98F2F /* VisualEffectView.swift */; };
+		B0DDF92FCB83FA089B1137DF /* SplashScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 864C5B57D0C8D8741A775A99 /* SplashScreenView.swift */; };
+		B827D3738EE6DAE080DBF854 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B129F6B824612C5DA3F87A /* AppSettings.swift */; };
+		CBACEEC1D1DD8C51E6A3D458 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3C84B6540AA54F2773505924 /* AppKit.framework */; };
+		D100B116EE4530F7910B4EB4 /* WallpaperWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1637744AD047139FA33E94 /* WallpaperWindow.swift */; };
+		D2F7688B7D098CD09B2894C2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160BE7F394E214D1766C4D14 /* AppDelegate.swift */; };
+		DBF72542ADF004E7C6BE51F9 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F469955E05202DB173B6A3 /* AboutView.swift */; };
+		DF63333B98B088E28A6EB283 /* ParticleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5150C1D0E712513D26DD81E /* ParticleView.swift */; };
+		E0D2E0EEEEE716F2D477BF0A /* WallpaperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77357997C591410FA806545B /* WallpaperManager.swift */; };
+		E89ADEC9993FF5CFA5489ACB /* BatteryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13523E7F2979B94481DD7DC3 /* BatteryMonitor.swift */; };
+		FCBBBB8E38B1C6E01028164A /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3697FBBA8FA69D66ADCF97 /* NowPlayingView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D0F585DD89A9C6618421441E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 788CA21942DEAF7ADF6B1D10 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 12A34E5D8E3F426DE0FBED74;
+			remoteInfo = VideoWall;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		005E0F9F01A0F2BD23353058 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		0A1637744AD047139FA33E94 /* WallpaperWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperWindow.swift; sourceTree = "<group>"; };
+		13523E7F2979B94481DD7DC3 /* BatteryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryMonitor.swift; sourceTree = "<group>"; };
+		160BE7F394E214D1766C4D14 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		2B3697FBBA8FA69D66ADCF97 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
+		37A16D439636DF640396EDD0 /* ScreenRecordingMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenRecordingMonitor.swift; sourceTree = "<group>"; };
+		3C84B6540AA54F2773505924 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = AppKit.framework; sourceTree = "<group>"; };
+		451BA99360BFB409A239FE03 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = IOKit.framework; sourceTree = "<group>"; };
+		46B129F6B824612C5DA3F87A /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		4B3CC4F0360EBAF98C516E44 /* VideoWallTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoWallTests.swift; sourceTree = "<group>"; };
+		53DF54D49B268072DCC0DB34 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = AVFoundation.framework; sourceTree = "<group>"; };
+		7005145B8310F385D25C7B5D /* VideoWallApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoWallApp.swift; sourceTree = "<group>"; };
+		717852CC0871A1C49069722A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		77357997C591410FA806545B /* WallpaperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperManager.swift; sourceTree = "<group>"; };
+		8159E67ECCB7254DD4143D09 /* VideoLibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoLibraryManager.swift; sourceTree = "<group>"; };
+		864C5B57D0C8D8741A775A99 /* SplashScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreenView.swift; sourceTree = "<group>"; };
+		94E8B8DA7A81A12FBB244CE6 /* VideoWall.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoWall.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A4C24EF5CE0FF532E294A05D /* SnapshotMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotMirror.swift; sourceTree = "<group>"; };
+		A7F469955E05202DB173B6A3 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		AE19B46AD205368A3D089C42 /* VideoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItem.swift; sourceTree = "<group>"; };
+		C456CF12A77E307C3A8AA913 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CC11CBB274AD45CA663DF30D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CF040BA5B129CA144D4B567F /* MenuBarContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContentView.swift; sourceTree = "<group>"; };
+		D2A4F1FD33011E17E3EFB111 /* VideoCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCard.swift; sourceTree = "<group>"; };
+		D5150C1D0E712513D26DD81E /* ParticleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParticleView.swift; sourceTree = "<group>"; };
+		D95B76DC299B170A92C98F2F /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
+		E5DAEFACDED10AA83400FC49 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = ServiceManagement.framework; sourceTree = "<group>"; };
+		F1532A7C5F4DD11CF1FBBF0E /* VideoWallTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VideoWallTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		88DB68E00404997B869B2217 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9E865E500BA9B6769BDE85D7 /* AVFoundation.framework in Frameworks */,
+				CBACEEC1D1DD8C51E6A3D458 /* AppKit.framework in Frameworks */,
+				289488753E9E5B220DE56B6F /* ServiceManagement.framework in Frameworks */,
+				2751744EB137B7CBA7C35953 /* IOKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		38E84D0108599D0BF5DCBE82 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A7F469955E05202DB173B6A3 /* AboutView.swift */,
+				005E0F9F01A0F2BD23353058 /* LibraryView.swift */,
+				CF040BA5B129CA144D4B567F /* MenuBarContentView.swift */,
+				2B3697FBBA8FA69D66ADCF97 /* NowPlayingView.swift */,
+				717852CC0871A1C49069722A /* SettingsView.swift */,
+				864C5B57D0C8D8741A775A99 /* SplashScreenView.swift */,
+				D2A4F1FD33011E17E3EFB111 /* VideoCard.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		48EF78F5947E41021CB2F7F3 /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				8159E67ECCB7254DD4143D09 /* VideoLibraryManager.swift */,
+				77357997C591410FA806545B /* WallpaperManager.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		56DC9845941D04D9FA0F1BB6 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				46B129F6B824612C5DA3F87A /* AppSettings.swift */,
+				AE19B46AD205368A3D089C42 /* VideoItem.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		5F9DEF6E5F1EC19D3310C67D /* VideoWall */ = {
+			isa = PBXGroup;
+			children = (
+				160BE7F394E214D1766C4D14 /* AppDelegate.swift */,
+				CC11CBB274AD45CA663DF30D /* Assets.xcassets */,
+				C456CF12A77E307C3A8AA913 /* Info.plist */,
+				7005145B8310F385D25C7B5D /* VideoWallApp.swift */,
+				CDBF3573335E0B87ED7D8231 /* Components */,
+				48EF78F5947E41021CB2F7F3 /* Managers */,
+				56DC9845941D04D9FA0F1BB6 /* Models */,
+				E025E960E046F53A26204876 /* Monitors */,
+				38E84D0108599D0BF5DCBE82 /* Views */,
+				8D5AABA82FCB15BA5A7DC888 /* Windows */,
+			);
+			path = VideoWall;
+			sourceTree = "<group>";
+		};
+		604C4F26183203BA686C523D = {
+			isa = PBXGroup;
+			children = (
+				5F9DEF6E5F1EC19D3310C67D /* VideoWall */,
+				B696B640FA6E726C111BB7A9 /* VideoWallTests */,
+				786152BE9ED714E2EBBB9220 /* Frameworks */,
+				684A2A5C2B6D48A824C86ABD /* Products */,
+			);
+			indentWidth = 4;
+			sourceTree = "<group>";
+			tabWidth = 4;
+		};
+		684A2A5C2B6D48A824C86ABD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				94E8B8DA7A81A12FBB244CE6 /* VideoWall.app */,
+				F1532A7C5F4DD11CF1FBBF0E /* VideoWallTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		786152BE9ED714E2EBBB9220 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3C84B6540AA54F2773505924 /* AppKit.framework */,
+				53DF54D49B268072DCC0DB34 /* AVFoundation.framework */,
+				451BA99360BFB409A239FE03 /* IOKit.framework */,
+				E5DAEFACDED10AA83400FC49 /* ServiceManagement.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		8D5AABA82FCB15BA5A7DC888 /* Windows */ = {
+			isa = PBXGroup;
+			children = (
+				0A1637744AD047139FA33E94 /* WallpaperWindow.swift */,
+			);
+			path = Windows;
+			sourceTree = "<group>";
+		};
+		B696B640FA6E726C111BB7A9 /* VideoWallTests */ = {
+			isa = PBXGroup;
+			children = (
+				4B3CC4F0360EBAF98C516E44 /* VideoWallTests.swift */,
+			);
+			path = VideoWallTests;
+			sourceTree = "<group>";
+		};
+		CDBF3573335E0B87ED7D8231 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				D5150C1D0E712513D26DD81E /* ParticleView.swift */,
+				D95B76DC299B170A92C98F2F /* VisualEffectView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		E025E960E046F53A26204876 /* Monitors */ = {
+			isa = PBXGroup;
+			children = (
+				13523E7F2979B94481DD7DC3 /* BatteryMonitor.swift */,
+				37A16D439636DF640396EDD0 /* ScreenRecordingMonitor.swift */,
+				A4C24EF5CE0FF532E294A05D /* SnapshotMirror.swift */,
+			);
+			path = Monitors;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		12A34E5D8E3F426DE0FBED74 /* VideoWall */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1EAC94D69E06DB54616E7DEB /* Build configuration list for PBXNativeTarget "VideoWall" */;
+			buildPhases = (
+				37C15010275D2236FE6C0C9C /* Sources */,
+				9D94DCBBD6AE76F2DC901B11 /* Resources */,
+				88DB68E00404997B869B2217 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VideoWall;
+			packageProductDependencies = (
+			);
+			productName = VideoWall;
+			productReference = 94E8B8DA7A81A12FBB244CE6 /* VideoWall.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CC8E0C9E4B063F973ACB889F /* VideoWallTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 452F904ACBD2694A473454FF /* Build configuration list for PBXNativeTarget "VideoWallTests" */;
+			buildPhases = (
+				8DF1DEEBDF6A9FFCAEE89D4A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E543F0D99A90DC63C3BA23F8 /* PBXTargetDependency */,
+			);
+			name = VideoWallTests;
+			packageProductDependencies = (
+			);
+			productName = VideoWallTests;
+			productReference = F1532A7C5F4DD11CF1FBBF0E /* VideoWallTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		788CA21942DEAF7ADF6B1D10 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					12A34E5D8E3F426DE0FBED74 = {
+						ProvisioningStyle = Automatic;
+					};
+					CC8E0C9E4B063F973ACB889F = {
+						DevelopmentTeam = 6LZ2DS9JPD;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C83478289419856B51F3BA05 /* Build configuration list for PBXProject "VideoWall" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 604C4F26183203BA686C523D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 684A2A5C2B6D48A824C86ABD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				12A34E5D8E3F426DE0FBED74 /* VideoWall */,
+				CC8E0C9E4B063F973ACB889F /* VideoWallTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9D94DCBBD6AE76F2DC901B11 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26F6CFF0998E77A52B71181E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		37C15010275D2236FE6C0C9C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DBF72542ADF004E7C6BE51F9 /* AboutView.swift in Sources */,
+				D2F7688B7D098CD09B2894C2 /* AppDelegate.swift in Sources */,
+				B827D3738EE6DAE080DBF854 /* AppSettings.swift in Sources */,
+				E89ADEC9993FF5CFA5489ACB /* BatteryMonitor.swift in Sources */,
+				3294D18012F7C283056A7253 /* LibraryView.swift in Sources */,
+				A9EE0204FBF219126F89BEF6 /* MenuBarContentView.swift in Sources */,
+				FCBBBB8E38B1C6E01028164A /* NowPlayingView.swift in Sources */,
+				DF63333B98B088E28A6EB283 /* ParticleView.swift in Sources */,
+				88FFBDA5CC755A74B60BB4EF /* ScreenRecordingMonitor.swift in Sources */,
+				459FDD676D0EAA618F268437 /* SettingsView.swift in Sources */,
+				AAF7412DAB507FD8DE8EDB59 /* SnapshotMirror.swift in Sources */,
+				B0DDF92FCB83FA089B1137DF /* SplashScreenView.swift in Sources */,
+				439F4B136CED67A31E7EAE8A /* VideoCard.swift in Sources */,
+				51B6BAD28443230FF48C061F /* VideoItem.swift in Sources */,
+				640AB9DD8D19D59B1CA9F2A9 /* VideoLibraryManager.swift in Sources */,
+				642FEA2E67A3DF3AF334FC8C /* VideoWallApp.swift in Sources */,
+				AC5F67F47397703E15906297 /* VisualEffectView.swift in Sources */,
+				E0D2E0EEEEE716F2D477BF0A /* WallpaperManager.swift in Sources */,
+				D100B116EE4530F7910B4EB4 /* WallpaperWindow.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8DF1DEEBDF6A9FFCAEE89D4A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E2EE5782B74403D1CCBCB2D /* VideoWallTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E543F0D99A90DC63C3BA23F8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 12A34E5D8E3F426DE0FBED74 /* VideoWall */;
+			targetProxy = D0F585DD89A9C6618421441E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		118C2B7EAA5D9944B98BD96E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maxkongerskov.videowall.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VideoWall.app/Contents/MacOS/VideoWall";
+			};
+			name = Release;
+		};
+		1454F055EA81F9FD945C5A16 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6LZ2DS9JPD;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		263642EC906A45DECD5ECE21 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maxkongerskov.videowall.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VideoWall.app/Contents/MacOS/VideoWall";
+			};
+			name = Debug;
+		};
+		614825B4A8E2E428D4FC635E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = VideoWall.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 6LZ2DS9JPD;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = VideoWall/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maxkongerskov.videowall;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		9A5B8D41E66E2C94EB1E5C53 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = VideoWall.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 6LZ2DS9JPD;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = VideoWall/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maxkongerskov.videowall;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		BBE77611D9E44D62A7CE4A41 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6LZ2DS9JPD;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LLVM_LTO = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1EAC94D69E06DB54616E7DEB /* Build configuration list for PBXNativeTarget "VideoWall" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A5B8D41E66E2C94EB1E5C53 /* Debug */,
+				614825B4A8E2E428D4FC635E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		452F904ACBD2694A473454FF /* Build configuration list for PBXNativeTarget "VideoWallTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				263642EC906A45DECD5ECE21 /* Debug */,
+				118C2B7EAA5D9944B98BD96E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C83478289419856B51F3BA05 /* Build configuration list for PBXProject "VideoWall" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1454F055EA81F9FD945C5A16 /* Debug */,
+				BBE77611D9E44D62A7CE4A41 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 788CA21942DEAF7ADF6B1D10 /* Project object */;
+}
