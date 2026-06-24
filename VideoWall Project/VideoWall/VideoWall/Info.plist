@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hide from Dock — menu bar agent only -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- App metadata -->
+	<key>CFBundleName</key>
+	<string>VideoWall</string>
+	<key>CFBundleDisplayName</key>
+	<string>VideoWall</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.maxkongerskov.videowall</string>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.1</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+
+	<!-- App Store / Xcode category (clears the "No App Category" warning) -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+
+	<!-- macOS deployment target -->
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+
+	<!-- Supported video file types for Finder association -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Video</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.movie</string>
+				<string>public.mpeg-4</string>
+				<string>com.apple.quicktime-movie</string>
+				<string>public.avi</string>
+				<string>public.mpeg</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Privacy descriptions (macOS requires these for file access) -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>VideoWall reads video files you select to use as a desktop wallpaper.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>VideoWall reads video files you select to use as a desktop wallpaper.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>VideoWall reads video files you select to use as a desktop wallpaper.</string>
+</dict>
+</plist>
