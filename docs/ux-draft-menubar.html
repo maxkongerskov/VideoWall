@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VideoWall — Menu Bar UX Draft</title>
+<style>
+  :root {
+    /* Single brand system */
+    --grad-a: #5b4dff;
+    --grad-b: #b04dff;
+    --accent: #7c3aed;
+    --accent-soft: rgba(124, 58, 237, 0.28);
+    --text: rgba(255,255,255,0.92);
+    --text-2: rgba(255,255,255,0.55);
+    --text-3: rgba(255,255,255,0.32);
+    --hairline: rgba(255,255,255,0.07);
+    --surface: rgba(255,255,255,0.06);
+    --surface-2: rgba(255,255,255,0.10);
+    --danger: #ff6b6b;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font);
+    background:
+      radial-gradient(1200px 600px at 20% 0%, #1a1230 0%, transparent 50%),
+      radial-gradient(900px 500px at 90% 20%, #0d1a2a 0%, transparent 45%),
+      #0b0b10;
+    color: var(--text);
+    padding: 40px 32px 64px;
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+  }
+  .lede {
+    color: var(--text-2);
+    font-size: 14px;
+    max-width: 720px;
+    line-height: 1.45;
+    margin: 0 0 28px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--grad-b);
+    background: var(--accent-soft);
+    padding: 4px 8px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+  }
+
+  .board {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 36px;
+    align-items: flex-start;
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .col label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    letter-spacing: 0.02em;
+  }
+  .col .note {
+    font-size: 11px;
+    color: var(--text-3);
+    max-width: 380px;
+    line-height: 1.4;
+  }
+
+  /* ── Popover shell ───────────────────────────────── */
+  .popover {
+    width: 380px;
+    height: 500px;
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.08),
+      0 24px 60px rgba(0,0,0,0.55),
+      0 2px 8px rgba(0,0,0,0.35);
+    background:
+      linear-gradient(165deg, rgba(40,36,55,0.92) 0%, rgba(18,18,26,0.94) 100%);
+    backdrop-filter: blur(40px) saturate(1.4);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .popover::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 40% at 50% -10%, rgba(124,58,237,0.18), transparent 60%);
+    pointer-events: none;
+  }
+
+  .popover > * { position: relative; z-index: 1; }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 12px 12px 14px;
+  }
+  .logo {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--grad-a), var(--grad-b));
+    display: grid;
+    place-items: center;
+    color: white;
+    font-size: 11px;
+  }
+  .title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+  }
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255,255,255,0.55);
+    display: grid;
+    place-items: center;
+    cursor: default;
+    font-size: 13px;
+  }
+  .icon-btn.gear {
+    font-size: 17px;
+    color: rgba(255,255,255,0.62);
+  }
+  .icon-btn:hover { background: var(--surface); color: var(--text); }
+
+  /* Now playing — soft band, no hard divider */
+  .now {
+    margin: 0 10px 8px;
+    padding: 10px 10px 10px 10px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+  }
+  .now-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .thumb {
+    width: 72px;
+    height: 40px;
+    border-radius: 7px;
+    background:
+      linear-gradient(135deg, #2a2040, #1a3050),
+      linear-gradient(45deg, var(--grad-a), var(--grad-b));
+    background-blend-mode: soft-light;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+  }
+  .thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 40%, rgba(176,77,255,0.25));
+  }
+  .now-meta { flex: 1; min-width: 0; }
+  .now-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .now-sub {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    font-size: 10.5px;
+    color: var(--text-2);
+  }
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: linear-gradient(90deg, var(--grad-a), var(--grad-b));
+    box-shadow: 0 0 6px rgba(176,77,255,0.7);
+  }
+  .play-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface-2);
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .vol {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--hairline);
+  }
+  .vol .speaker { font-size: 11px; color: var(--text-2); width: 16px; }
+  .track {
+    flex: 1;
+    height: 4px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.1);
+    position: relative;
+  }
+  .track::after {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 42%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--grad-a), var(--grad-b));
+  }
+  .vol-pct {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-3);
+    width: 28px;
+    text-align: right;
+  }
+
+  /* Tabs — segmented, no heavy dividers */
+  .tabs {
+    margin: 0 10px 8px;
+    display: flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.28);
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-3);
+    padding: 7px 0;
+    border-radius: 8px;
+  }
+  .tab.on {
+    color: var(--text);
+    font-weight: 600;
+    background: var(--surface-2);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  }
+
+  /* Content area */
+  .content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Library grid */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 4px 12px 12px;
+  }
+  .card {
+    aspect-ratio: 16/10;
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    background: #1c1c28;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+  }
+  .card.live {
+    box-shadow:
+      inset 0 0 0 2px transparent,
+      0 0 0 2px transparent;
+    background:
+      linear-gradient(#1c1c28, #1c1c28) padding-box,
+      linear-gradient(135deg, var(--grad-a), var(--grad-b)) border-box;
+    border: 2px solid transparent;
+  }
+  .card-bg {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+  }
+  .c1 { background: linear-gradient(145deg, #1e3a5f, #3d1f5c 60%, #0f172a); }
+  .c2 { background: linear-gradient(145deg, #0f766e, #134e4a 50%, #1e1b4b); }
+  .c3 { background: linear-gradient(145deg, #7c2d12, #431407 55%, #1c1917); }
+  .c4 { background: linear-gradient(145deg, #312e81, #1e1b4b 50%, #0c0a1d); }
+
+  .card-fade {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 55%;
+    background: linear-gradient(transparent, rgba(0,0,0,0.75));
+  }
+  .card-info {
+    position: absolute;
+    left: 8px; right: 8px; bottom: 7px;
+  }
+  .card-name {
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-dur {
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 1px;
+  }
+  .live-badge {
+    position: absolute;
+    top: 7px;
+    left: 7px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: rgba(0,0,0,0.55);
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    backdrop-filter: blur(8px);
+  }
+  .live-badge .pulse {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #a78bfa;
+    box-shadow: 0 0 6px #a78bfa;
+  }
+
+  /* Toolbar under tabs / above grid */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px 8px;
+  }
+  .toolbar .count {
+    font-size: 11px;
+    color: var(--text-3);
+    font-weight: 500;
+  }
+  .toolbar .spacer { flex: 1; }
+  .tool-btn {
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 8px;
+    border: none;
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 11px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tool-btn.primary {
+    background: linear-gradient(135deg, var(--grad-a), var(--grad-b));
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 2px 10px rgba(124,58,237,0.35);
+  }
+
+  /* Drag-over state on library surface */
+  .drop-zone {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .drop-zone.over {
+    outline: 2.5px solid transparent;
+    outline-offset: -8px;
+    border-radius: 12px;
+    box-shadow: inset 0 0 0 2.5px var(--grad-b), inset 0 0 40px rgba(124,58,237,0.12);
+  }
+  .drop-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(12,10,24,0.55);
+    backdrop-filter: blur(6px);
+    z-index: 5;
+    border-radius: 10px;
+    margin: 6px;
+  }
+  .drop-hint .box {
+    padding: 14px 20px;
+    border-radius: 12px;
+    background: rgba(30,28,48,0.9);
+    border: 1px solid rgba(176,77,255,0.35);
+    text-align: center;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+  }
+  .drop-hint .box .ico { font-size: 26px; margin-bottom: 4px; }
+  .drop-hint .box .t { font-size: 12px; font-weight: 650; }
+  .drop-hint .box .s { font-size: 10px; color: var(--text-2); margin-top: 3px; }
+
+  .ways {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 10.5px;
+    color: var(--text-3);
+    text-align: left;
+    max-width: 260px;
+  }
+  .ways div { display: flex; gap: 6px; align-items: flex-start; }
+  .ways strong { color: var(--text-2); font-weight: 600; }
+
+  /* Empty state */
+  .empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 28px 32px;
+    text-align: center;
+  }
+  .empty-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: var(--accent-soft);
+    display: grid;
+    place-items: center;
+    font-size: 24px;
+    margin-bottom: 14px;
+    box-shadow: inset 0 0 0 1px rgba(176,77,255,0.25);
+  }
+  .empty h2 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 650;
+  }
+  .empty p {
+    margin: 0 0 16px;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.4;
+    max-width: 240px;
+  }
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    border: none;
+    background: linear-gradient(135deg, var(--grad-a), var(--grad-b));
+    color: white;
+    font-size: 12.5px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(124,58,237,0.4);
+  }
+  .cta-secondary {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+
+  /* Controls */
+  .controls {
+    padding: 4px 14px 16px;
+    overflow: auto;
+  }
+  .section-label {
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin: 10px 0 8px;
+  }
+  .mode {
+    display: flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.28);
+    gap: 2px;
+  }
+  .mode-opt {
+    flex: 1;
+    text-align: center;
+    padding: 10px 6px;
+    border-radius: 8px;
+  }
+  .mode-opt.on {
+    background: linear-gradient(135deg, var(--grad-a), var(--grad-b));
+    box-shadow: 0 2px 8px rgba(124,58,237,0.35);
+  }
+  .mode-opt .m {
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .mode-opt .s {
+    font-size: 9px;
+    margin-top: 2px;
+    opacity: 0.7;
+  }
+  .mode-opt:not(.on) .m { color: var(--text-2); }
+  .mode-opt:not(.on) .s { color: var(--text-3); }
+
+  .blur-card {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+  }
+  .blur-card.hidden-demo {
+    opacity: 0.35;
+    filter: grayscale(0.3);
+  }
+  .blur-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  .blur-head span:last-child {
+    color: var(--grad-b);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .slider {
+    height: 4px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.1);
+    position: relative;
+  }
+  .slider::after {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 18%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--grad-a), var(--grad-b));
+  }
+  .slider .knob {
+    position: absolute;
+    left: 18%;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+
+  .trim {
+    margin-top: 4px;
+  }
+  .trim-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .trim-head .dur {
+    font-size: 13px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .range {
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    position: relative;
+    margin-bottom: 6px;
+  }
+  .range .sel {
+    position: absolute;
+    left: 12%;
+    right: 18%;
+    top: 6px;
+    bottom: 6px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, rgba(91,77,255,0.45), rgba(176,77,255,0.45));
+    box-shadow: inset 0 0 0 1px rgba(176,77,255,0.5);
+  }
+  .range .h {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    width: 8px;
+    border-radius: 4px;
+    background: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  }
+  .range .h.l { left: 12%; }
+  .range .h.r { right: 18%; }
+  .trim-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .row-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0 4px;
+    font-size: 12px;
+  }
+  .switch {
+    width: 36px;
+    height: 20px;
+    border-radius: 99px;
+    background: linear-gradient(135deg, var(--grad-a), var(--grad-b));
+    position: relative;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    top: 2px;
+    right: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+
+  /* Before strip (small, muted) */
+  .before {
+    width: 200px;
+    opacity: 0.55;
+    filter: saturate(0.7);
+    transform: scale(0.95);
+    transform-origin: top left;
+  }
+  .before .popover {
+    width: 200px;
+    height: 280px;
+    font-size: 9px;
+  }
+
+  .legend {
+    margin-top: 40px;
+    max-width: 900px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .legend article {
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--hairline);
+  }
+  .legend h3 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--grad-b);
+  }
+  .legend p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.4;
+  }
+
+  .sf { font-family: "SF Pro Symbols", "Apple Symbols", sans-serif; }
+</style>
+</head>
+<body>
+  <div class="badge">UX draft · matches current Library shipping path</div>
+  <h1>VideoWall menu bar — improved draft</h1>
+  <p class="lede">
+    Library always exposes <strong>Folder</strong> (opens the on-disk VideoWall library in Finder)
+    and <strong>Import</strong> (system file picker). Third path: <strong>drag a video</strong> onto the
+    Library surface of the menu-bar popover. Soft now-playing, segmented tabs, one brand gradient.
+  </p>
+
+  <div class="board">
+
+    <!-- 1 Library with content -->
+    <div class="col">
+      <label>1 · Library (with videos)</label>
+      <div class="popover">
+        <div class="header">
+          <div class="logo sf">▶</div>
+          <div class="title">VideoWall</div>
+          <div class="header-actions">
+            <div class="icon-btn gear" title="Settings">⚙</div>
+            <div class="icon-btn" title="Quit">⏻</div>
+          </div>
+        </div>
+
+        <div class="now">
+          <div class="now-row">
+            <div class="thumb"></div>
+            <div class="now-meta">
+              <div class="now-name">Coastal Loop — 4K</div>
+              <div class="now-sub">
+                <span class="dot"></span> Playing · 2:14
+              </div>
+            </div>
+            <div class="play-btn sf">❚❚</div>
+          </div>
+          <div class="vol">
+            <span class="speaker sf">🔊</span>
+            <div class="track"></div>
+            <span class="vol-pct">42%</span>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <div class="tab on">Library</div>
+          <div class="tab">Controls</div>
+        </div>
+
+        <div class="content">
+          <div class="toolbar">
+            <span class="count">4 videos</span>
+            <span class="spacer"></span>
+            <div class="tool-btn" title="Open library folder in Finder">📁 Folder</div>
+            <div class="tool-btn primary" title="Import from Finder">⬇ Import</div>
+          </div>
+          <div class="grid">
+            <div class="card live">
+              <div class="card-bg c1"></div>
+              <div class="live-badge"><span class="pulse"></span> Live</div>
+              <div class="card-fade"></div>
+              <div class="card-info">
+                <div class="card-name">Coastal Loop — 4K</div>
+                <div class="card-dur">2:14</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-bg c2"></div>
+              <div class="card-fade"></div>
+              <div class="card-info">
+                <div class="card-name">Rain on Glass</div>
+                <div class="card-dur">1:02</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-bg c3"></div>
+              <div class="card-fade"></div>
+              <div class="card-info">
+                <div class="card-name">Ember Fireplace</div>
+                <div class="card-dur">3:40</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-bg c4"></div>
+              <div class="card-fade"></div>
+              <div class="card-info">
+                <div class="card-name">Night Drive</div>
+                <div class="card-dur">0:48</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><strong>Folder</strong> → Application Support/VideoWall/Library · <strong>Import</strong> → open panel · grid still accepts drops</p>
+    </div>
+
+    <!-- 2 Empty -->
+    <div class="col">
+      <label>2 · Empty library (first run)</label>
+      <div class="popover">
+        <div class="header">
+          <div class="logo sf">▶</div>
+          <div class="title">VideoWall</div>
+          <div class="header-actions">
+            <div class="icon-btn gear">⚙</div>
+            <div class="icon-btn">⏻</div>
+          </div>
+        </div>
+
+        <div class="tabs" style="margin-top:4px">
+          <div class="tab on">Library</div>
+          <div class="tab">Controls</div>
+        </div>
+
+        <div class="content">
+          <div class="toolbar">
+            <span class="spacer"></span>
+            <div class="tool-btn">📁 Folder</div>
+            <div class="tool-btn primary">⬇ Import</div>
+          </div>
+          <div class="empty">
+            <div class="empty-icon">🎞</div>
+            <h2>No videos yet</h2>
+            <p>Import from Finder, open the library folder, or drag a video into this window.</p>
+            <div style="display:flex;gap:10px;margin-top:4px">
+              <div class="tool-btn" style="height:auto;padding:8px 14px;border-radius:999px">📁 Folder</div>
+              <div class="tool-btn primary" style="height:auto;padding:8px 14px;border-radius:999px">⬇ Import</div>
+            </div>
+            <div class="ways">
+              <div><strong>1. Folder</strong> — open the real library directory</div>
+              <div><strong>2. Import</strong> — pick files in Finder</div>
+              <div><strong>3. Drag</strong> — drop a video on this popover</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Same Folder + Import chrome when empty · three paths spelled out</p>
+    </div>
+
+    <!-- 2b Drag over -->
+    <div class="col">
+      <label>2b · Drag &amp; drop onto Library</label>
+      <div class="popover">
+        <div class="header">
+          <div class="logo sf">▶</div>
+          <div class="title">VideoWall</div>
+          <div class="header-actions">
+            <div class="icon-btn gear">⚙</div>
+            <div class="icon-btn">⏻</div>
+          </div>
+        </div>
+
+        <div class="tabs" style="margin-top:4px">
+          <div class="tab on">Library</div>
+          <div class="tab">Controls</div>
+        </div>
+
+        <div class="content">
+          <div class="toolbar">
+            <span class="count">4 videos</span>
+            <span class="spacer"></span>
+            <div class="tool-btn">📁 Folder</div>
+            <div class="tool-btn primary">⬇ Import</div>
+          </div>
+          <div class="drop-zone over" style="flex:1;position:relative;min-height:280px">
+            <div class="grid" style="opacity:0.35">
+              <div class="card"><div class="card-bg c1"></div></div>
+              <div class="card"><div class="card-bg c2"></div></div>
+              <div class="card"><div class="card-bg c3"></div></div>
+              <div class="card"><div class="card-bg c4"></div></div>
+            </div>
+            <div class="drop-hint">
+              <div class="box">
+                <div class="ico">⬇</div>
+                <div class="t">Drop to import</div>
+                <div class="s">mp4, mov, m4v, …</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Third path: drag files onto the menu-bar Library surface · purple ring + overlay</p>
+    </div>
+
+    <!-- 3 Controls Loop (blur collapsed) -->
+    <div class="col">
+      <label>3 · Controls — Loop (blur hidden)</label>
+      <div class="popover">
+        <div class="header">
+          <div class="logo sf">▶</div>
+          <div class="title">VideoWall</div>
+          <div class="header-actions">
+            <div class="icon-btn gear">⚙</div>
+            <div class="icon-btn">⏻</div>
+          </div>
+        </div>
+
+        <div class="now">
+          <div class="now-row">
+            <div class="thumb"></div>
+            <div class="now-meta">
+              <div class="now-name">Coastal Loop — 4K</div>
+              <div class="now-sub"><span class="dot"></span> Playing · 2:14</div>
+            </div>
+            <div class="play-btn sf">❚❚</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <div class="tab">Library</div>
+          <div class="tab on">Controls</div>
+        </div>
+
+        <div class="content controls">
+          <div class="section-label">Playback</div>
+          <div class="mode">
+            <div class="mode-opt on">
+              <div class="m">Loop</div>
+              <div class="s">Repeat current</div>
+            </div>
+            <div class="mode-opt">
+              <div class="m">Cycle</div>
+              <div class="s">Through library</div>
+            </div>
+          </div>
+          <!-- Blur intentionally absent when Loop is on -->
+
+          <div class="section-label">Clip trim</div>
+          <div class="trim">
+            <div class="trim-head">
+              <span class="section-label" style="margin:0">Range</span>
+              <span class="dur">1:48</span>
+            </div>
+            <div class="range">
+              <div class="sel"></div>
+              <div class="h l"></div>
+              <div class="h r"></div>
+            </div>
+            <div class="trim-labels">
+              <span>12%</span>
+              <span>82%</span>
+            </div>
+          </div>
+
+          <div class="section-label">Display</div>
+          <div class="row-toggle">
+            <span>Show on all Spaces</span>
+            <div class="switch"></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Cycle-only blur gone in Loop · dual-handle trim instead of two % sliders</p>
+    </div>
+
+    <!-- 4 Controls Cycle (blur visible) -->
+    <div class="col">
+      <label>4 · Controls — Cycle (blur shown)</label>
+      <div class="popover">
+        <div class="header">
+          <div class="logo sf">▶</div>
+          <div class="title">VideoWall</div>
+          <div class="header-actions">
+            <div class="icon-btn gear">⚙</div>
+            <div class="icon-btn">⏻</div>
+          </div>
+        </div>
+
+        <div class="tabs" style="margin-top:4px">
+          <div class="tab">Library</div>
+          <div class="tab on">Controls</div>
+        </div>
+
+        <div class="content controls">
+          <div class="section-label">Playback</div>
+          <div class="mode">
+            <div class="mode-opt">
+              <div class="m">Loop</div>
+              <div class="s">Repeat current</div>
+            </div>
+            <div class="mode-opt on">
+              <div class="m">Cycle</div>
+              <div class="s">Through library</div>
+            </div>
+          </div>
+
+          <div class="blur-card">
+            <div class="blur-head">
+              <span>Crossfade blur</span>
+              <span>Default</span>
+            </div>
+            <div class="slider"><div class="knob"></div></div>
+          </div>
+
+          <div class="section-label">Clip trim</div>
+          <div class="trim">
+            <div class="trim-head">
+              <span class="section-label" style="margin:0">Range</span>
+              <span class="dur">Full clip</span>
+            </div>
+            <div class="range">
+              <div class="sel" style="left:0;right:0"></div>
+              <div class="h l" style="left:0"></div>
+              <div class="h r" style="right:0"></div>
+            </div>
+            <div class="trim-labels">
+              <span>0%</span>
+              <span>100%</span>
+            </div>
+          </div>
+
+          <div class="section-label">Display</div>
+          <div class="row-toggle">
+            <span>Show on all Spaces</span>
+            <div class="switch"></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Blur only when relevant · compact card · no Rec. tick clutter</p>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <article>
+      <h3>Folder</h3>
+      <p>Opens the real on-disk library (<code>…/Application Support/VideoWall/Library</code>). Dropping files there is also imported via the directory watcher.</p>
+    </article>
+    <article>
+      <h3>Import</h3>
+      <p>Primary action: system open panel (Finder). Multi-select videos → copy into the library.</p>
+    </article>
+    <article>
+      <h3>Drag &amp; drop</h3>
+      <p>Third path: drop a video onto the Library tab of the menu-bar popover. Shows “Drop to import” while hovering.</p>
+    </article>
+    <article>
+      <h3>Tokens &amp; chrome</h3>
+      <p>One gradient for Import CTA, live ring, mode chips. Larger settings gear. Soft now-playing surface, fewer hard dividers.</p>
+    </article>
+  </div>
+</body>
+</html>

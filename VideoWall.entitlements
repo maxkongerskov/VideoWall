@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	    App Sandbox is DISABLED for GitHub / direct distribution so the app
+	    can freely read user-imported video files. Re-enable and add the
+	    appropriate read entitlements before submitting to the Mac App Store.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+
+	<!-- Hardened runtime — allow AVFoundation / JIT (not needed but harmless) -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<false/>
+</dict>
+</plist>

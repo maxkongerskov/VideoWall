@@ -1,0 +1,94 @@
+# VideoWall — XcodeGen project spec
+# Run: brew install xcodegen && xcodegen generate
+# Docs: https://github.com/yonaskolb/XcodeGen
+
+name: VideoWall
+options:
+  bundleIdPrefix: com.maxkongerskov
+  deploymentTarget:
+    macOS: "15.0"
+  defaultConfig: Debug
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  indentWidth: 4
+  tabWidth: 4
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "6LZ2DS9JPD"
+    MARKETING_VERSION: "1.0.1"
+    CURRENT_PROJECT_VERSION: 2
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    COMBINE_HIDPI_IMAGES: YES
+  configs:
+    Debug:
+      DEBUG_INFORMATION_FORMAT: dwarf
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      ENABLE_TESTABILITY: YES
+      GCC_OPTIMIZATION_LEVEL: "0"
+    Release:
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+      GCC_OPTIMIZATION_LEVEL: s
+      LLVM_LTO: YES
+
+targets:
+
+  # ── Main application ────────────────────────────────────────────────────────
+  VideoWall:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+
+    sources:
+      - path: VideoWall
+        excludes:
+          - "**/*.md"
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxkongerskov.videowall
+        INFOPLIST_FILE: VideoWall/Info.plist
+        CODE_SIGN_ENTITLEMENTS: VideoWall.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        # Menu bar agent — no Dock icon (set in Info.plist via LSUIElement)
+
+    dependencies:
+      - framework: AVFoundation.framework
+        embed: false
+      - framework: AppKit.framework
+        embed: false
+      - framework: ServiceManagement.framework
+        embed: false
+      - framework: IOKit.framework
+        embed: false
+
+    scheme:
+      buildTargets:
+        build: [VideoWall]
+      testTargets: [VideoWallTests]
+      launchArguments: []
+
+  # ── Unit tests ──────────────────────────────────────────────────────────────
+  VideoWallTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+
+    sources:
+      - path: VideoWallTests
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxkongerskov.videowall.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+
+    dependencies:
+      - target: VideoWall
