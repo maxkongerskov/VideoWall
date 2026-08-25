@@ -41,6 +41,7 @@ Package.resolved
 *.dmg
 *.zip
 *.app
+Release/
 
 # Editor / OS
 .idea/

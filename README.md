@@ -10,7 +10,7 @@ VideoWall plays a looping video behind your desktop icons. No Dock icon, no clut
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange?logo=swift)](https://swift.org)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-AVFoundation-blue)](https://developer.apple.com/xcode/swiftui/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.1-brightgreen)](#)
+[![Version](https://img.shields.io/badge/version-1.1.0-brightgreen)](#)
 
 </div>
 
