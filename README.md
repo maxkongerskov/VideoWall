@@ -6,7 +6,11 @@
 
 VideoWall plays a looping video behind your desktop icons. No Dock icon, no clutter — just a `▶` in the menu bar, your library of clips, and a wallpaper that moves.
 
-<img src="docs/demo.gif" alt="VideoWall live wallpaper demo" width="720">
+</div>
+
+https://github.com/maxkongerskov/VideoWall/releases/download/v1.1.0/demo.mp4
+
+<div align="center">
 
 [![Platform](https://img.shields.io/badge/platform-macOS%2015%2B-black?logo=apple)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange?logo=swift)](https://swift.org)
