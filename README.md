@@ -6,6 +6,8 @@
 
 VideoWall plays a looping video behind your desktop icons. No Dock icon, no clutter — just a `▶` in the menu bar, your library of clips, and a wallpaper that moves.
 
+<img src="docs/demo.gif" alt="VideoWall live wallpaper demo" width="720">
+
 [![Platform](https://img.shields.io/badge/platform-macOS%2015%2B-black?logo=apple)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange?logo=swift)](https://swift.org)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-AVFoundation-blue)](https://developer.apple.com/xcode/swiftui/)
@@ -87,12 +89,6 @@ VideoWall/
     ├── Views/                        ← Library, NowPlaying, Settings, About…
     └── Components/                   ← VisualEffectView, ParticleView
 ```
-
----
-
-## 📸 Screenshots
-
-_Coming soon._
 
 ---
 
