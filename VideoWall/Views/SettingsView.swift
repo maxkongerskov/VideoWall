@@ -138,7 +138,7 @@ struct GeneralSettingsView: View {
                     .toggleStyle(SwitchToggleStyle(tint: .purple))
                 }
 
-                Text("Keeps the video playing over the screensaver and on the lock screen. The lock screen uses macOS aerials so the clock and password field stay visible.")
+                Text("Keeps the video playing over the screensaver and on the lock screen.")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.45))
                     .fixedSize(horizontal: false, vertical: true)

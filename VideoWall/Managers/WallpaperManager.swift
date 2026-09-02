@@ -46,9 +46,10 @@ final class WallpaperManager: ObservableObject {
     let settings: AppSettings
     let library:  VideoLibraryManager
 
-    /// - Parameter lockScreenInjection: When true, copies the current video
-    ///   into macOS aerials so the lock screen can play it natively. Tests
-    ///   leave this false so they never touch the system wallpaper store.
+    /// - Parameter lockScreenInjection: When true, owns an AerialsInjector so
+    ///   a leftover 1.1.0 Apple-store injection can be retired from VideoWall's
+    ///   own files. Does not write into Apple's wallpaper store. Tests leave
+    ///   this false so they never construct the production injector.
     init(settings: AppSettings,
          library: VideoLibraryManager,
          lockScreenInjection: Bool = false) {
@@ -108,7 +109,6 @@ final class WallpaperManager: ObservableObject {
     /// Overlay player was paused because native aerials own the lock screen.
     private var overlayHeldForLock = false
 
-    private var injectTask: Task<Void, Never>?
     private var surfaceReassertTask: Task<Void, Never>?
 
     // MARK: Private – observers
@@ -131,6 +131,10 @@ final class WallpaperManager: ObservableObject {
 
     func setup() {
         restoreWallpaperFromLegacyBackupIfNeeded()
+        // 1.1.0 wrote into Apple's wallpaper store. Retire VideoWall-owned
+        // markers only — never probe com.apple.wallpaper or another app's
+        // container, which is a Files & Folders prompt every boot.
+        aerials?.uninstallIfPreviouslyInstalled()
         createWallpaperWindows()
         observeScreenChanges()
         observePlaybackEnd()
@@ -194,7 +198,6 @@ final class WallpaperManager: ObservableObject {
         recordingMonitor.stop()
         snapshotMirror.stop()
         surfaceMonitor.stop()
-        injectTask?.cancel(); injectTask = nil
         surfaceReassertTask?.cancel(); surfaceReassertTask = nil
         screenChangeTask?.cancel(); screenChangeTask = nil
 
@@ -229,12 +232,9 @@ final class WallpaperManager: ObservableObject {
         } else {
             playCold(video: video, url: url)
         }
-
-        scheduleLockScreenInstall()
     }
 
     func stop() {
-        injectTask?.cancel(); injectTask = nil
         stopPlayer()
         currentVideo = nil
         isPlaying    = false
@@ -406,12 +406,9 @@ final class WallpaperManager: ObservableObject {
 
     func setPlayOnLockAndScreensaver(_ enabled: Bool) {
         settings.playOnLockAndScreensaver = enabled
-        if enabled {
-            scheduleLockScreenInstall()
-        } else {
-            injectTask?.cancel(); injectTask = nil
+        if !enabled {
             nativeLockReady = false
-            aerials?.uninstall()
+            aerials?.uninstallIfPreviouslyInstalled()
         }
         applyCurrentSurface()
     }
@@ -979,29 +976,6 @@ final class WallpaperManager: ObservableObject {
     }
 
     // MARK: – Lock screen / screensaver overlay
-
-    private func scheduleLockScreenInstall() {
-        guard settings.playOnLockAndScreensaver,
-              let aerials,
-              let video = currentVideo,
-              let url = resolvedURL(for: video)
-        else { return }
-
-        injectTask?.cancel()
-        let name = video.name
-        injectTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled, let self else { return }
-            let ok = await Task.detached {
-                aerials.install(videoURL: url, displayName: name)
-            }.value
-            guard !Task.isCancelled else { return }
-            self.nativeLockReady = ok
-            if self.surface == .lockScreen {
-                self.applyCurrentSurface()
-            }
-        }
-    }
 
     private func applyCurrentSurface() {
         guard settings.playOnLockAndScreensaver else {

@@ -4,13 +4,14 @@ import Foundation
 
 // MARK: - AerialsInjector
 //
-// Registers the current wallpaper video as a custom macOS aerial so
-// WallpaperAgent can play it natively on the lock screen (behind the clock
-// and password field). Desktop playback stays on VideoWall's overlay.
+// 1.1.0 registered the current wallpaper video as a custom macOS aerial under
+// ~/Library/Application Support/com.apple.wallpaper/ so WallpaperAgent could
+// play it on the lock screen. That is another app's folder and a Files &
+// Folders prompt on every launch after Don't Allow.
 //
-// Writes under ~/Library/Application Support/com.apple.wallpaper/ — the same
-// user-writable store Backdrop / LivePaper use. `touchesSystem: false` keeps
-// all I/O inside the supplied directories (unit tests).
+// Production I/O now stays inside VideoWall's own Application Support.
+// Desktop / lock / screensaver playback uses VideoWall's overlay windows.
+// `touchesSystem: false` keeps all I/O inside the supplied directories (tests).
 
 final class AerialsInjector: Sendable {
 
@@ -30,17 +31,16 @@ final class AerialsInjector: Sendable {
         supportDir: URL? = nil
     ) {
         self.touchesSystem = touchesSystem
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let wallpaperRoot = home
-            .appendingPathComponent("Library/Application Support/com.apple.wallpaper")
-        self.aerialsRoot = aerialsRoot
-            ?? wallpaperRoot.appendingPathComponent("aerials", isDirectory: true)
-        self.storeURL = storeURL
-            ?? wallpaperRoot.appendingPathComponent("Store/Index.plist")
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        )[0]
         let support = supportDir
-            ?? home.appendingPathComponent(
-                "Library/Application Support/VideoWall", isDirectory: true
-            )
+            ?? appSupport.appendingPathComponent("VideoWall", isDirectory: true)
+        // Never default into Apple's wallpaper store or another app's container.
+        self.aerialsRoot = aerialsRoot
+            ?? support.appendingPathComponent("aerials", isDirectory: true)
+        self.storeURL = storeURL
+            ?? support.appendingPathComponent("Store/Index.plist")
         self.backupURL = support.appendingPathComponent("wallpaper-store-backup.plist")
         self.assetIDURL = support.appendingPathComponent("aerials-asset-id")
     }
@@ -93,13 +93,32 @@ final class AerialsInjector: Sendable {
 
         persistAssetID(assetID)
 
-        if touchesSystem && videoChanged {
+        if touchesSystem && videoChanged && Self.isForeignWallpaperLocation(storeURL) {
             restartWallpaperAgent()
         }
         return true
     }
 
+    /// True when a previous injection left VideoWall-owned markers.
+    var hasLocalInstallMarker: Bool {
+        FileManager.default.fileExists(atPath: backupURL.path) || storedAssetID() != nil
+    }
+
+    /// Cleans a prior injection. Skips Apple / other-app folders so launch
+    /// never triggers a Files & Folders prompt; retires local markers either way
+    /// so the attempt is one-shot.
+    func uninstallIfPreviouslyInstalled() {
+        guard hasLocalInstallMarker else { return }
+        uninstall()
+    }
+
     func uninstall() {
+        if Self.isForeignWallpaperLocation(aerialsRoot)
+            || Self.isForeignWallpaperLocation(storeURL) {
+            clearLocalInstallMarkers()
+            return
+        }
+
         removeFromEntriesJSON()
         if let id = storedAssetID() {
             let fm = FileManager.default
@@ -111,9 +130,26 @@ final class AerialsInjector: Sendable {
             try? fm.removeItem(at: thumbsDir.appendingPathComponent("\(id).png"))
         }
         restoreStoreBackup()
-        if touchesSystem {
-            restartWallpaperAgent()
+        clearLocalInstallMarkers()
+        // Do not bounce WallpaperAgent: we no longer mutate Apple's store.
+    }
+
+    func clearLocalInstallMarkers() {
+        let fm = FileManager.default
+        try? fm.removeItem(at: backupURL)
+        try? fm.removeItem(at: assetIDURL)
+    }
+
+    /// Apple's wallpaper store and other apps' containers are TCC-protected.
+    static func isForeignWallpaperLocation(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        if path.contains("/com.apple.wallpaper/") || path.hasSuffix("/com.apple.wallpaper") {
+            return true
         }
+        if path.contains("/Library/Containers/") {
+            return true
+        }
+        return false
     }
 
     /// True when the catalog file and the copied video are present.
@@ -332,9 +368,17 @@ final class AerialsInjector: Sendable {
     private func restoreStoreBackup() {
         let fm = FileManager.default
         guard fm.fileExists(atPath: backupURL.path) else { return }
+        try? fm.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try? fm.removeItem(at: storeURL)
-        try? fm.copyItem(at: backupURL, to: storeURL)
-        try? fm.removeItem(at: backupURL)
+        do {
+            try fm.copyItem(at: backupURL, to: storeURL)
+            try fm.removeItem(at: backupURL)
+        } catch {
+            // Leave the backup if the copy failed; caller still retires markers.
+        }
     }
 
     // MARK: Thumbnail
@@ -375,18 +419,6 @@ final class AerialsInjector: Sendable {
     // MARK: WallpaperAgent
 
     private func restartWallpaperAgent() {
-        let cacheDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(
-                "Library/Containers/com.apple.wallpaper.agent/Data/Library/Caches/com.apple.wallpaper.caches/extension-com.apple.wallpaper.extension.aerials"
-            )
-        if let items = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) {
-            for item in items where item.hasSuffix(".bmp") {
-                try? FileManager.default.removeItem(
-                    at: cacheDir.appendingPathComponent(item)
-                )
-            }
-        }
-
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
         task.arguments = ["WallpaperAgent"]

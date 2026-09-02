@@ -360,6 +360,7 @@ final class AerialsInjectorTests: XCTestCase {
 
         injector.uninstall()
         XCTAssertFalse(injector.isHealthy())
+        XCTAssertFalse(injector.hasLocalInstallMarker)
     }
 
     func testReinstallSameFileIsIdempotent() throws {
@@ -379,5 +380,111 @@ final class AerialsInjectorTests: XCTestCase {
         XCTAssertTrue(injector.install(videoURL: videoURL, displayName: "A"))
         XCTAssertTrue(injector.install(videoURL: videoURL, displayName: "A"))
         XCTAssertTrue(injector.isHealthy())
+    }
+
+    func testProductionPathsStayInsideVideoWallSupport() {
+        let injector = AerialsInjector(touchesSystem: false)
+        XCTAssertFalse(AerialsInjector.isForeignWallpaperLocation(injector.aerialsRoot))
+        XCTAssertFalse(AerialsInjector.isForeignWallpaperLocation(injector.storeURL))
+        XCTAssertFalse(injector.aerialsRoot.path.contains("com.apple.wallpaper"))
+        XCTAssertFalse(injector.storeURL.path.contains("com.apple.wallpaper"))
+        XCTAssertTrue(injector.backupURL.path.contains("VideoWall"))
+        XCTAssertTrue(injector.assetIDURL.path.contains("VideoWall"))
+    }
+
+    func testUninstallIfPreviouslyInstalledNoopsWithoutMarkers() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("VideoWallAerialsNoop-\(UUID().uuidString)", isDirectory: true)
+        let aerials = root.appendingPathComponent("aerials", isDirectory: true)
+        let store = root.appendingPathComponent("Store/Index.plist")
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let injector = AerialsInjector(
+            touchesSystem: false,
+            aerialsRoot: aerials,
+            storeURL: store,
+            supportDir: support
+        )
+        XCTAssertFalse(injector.hasLocalInstallMarker)
+        injector.uninstallIfPreviouslyInstalled()
+        XCTAssertFalse(fm.fileExists(atPath: aerials.path))
+        XCTAssertFalse(fm.fileExists(atPath: store.deletingLastPathComponent().path))
+    }
+
+    func testBootCleanupSkipsForeignWallpaperFoldersAndRetiresMarkers() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("VideoWallAerialsTCC-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let appleAerials = root.appendingPathComponent(
+            "Library/Application Support/com.apple.wallpaper/aerials", isDirectory: true
+        )
+        let appleStore = root.appendingPathComponent(
+            "Library/Application Support/com.apple.wallpaper/Store/Index.plist"
+        )
+        let support = root.appendingPathComponent("VideoWall", isDirectory: true)
+        let manifest = appleAerials.appendingPathComponent("manifest", isDirectory: true)
+        try fm.createDirectory(at: manifest, withIntermediateDirectories: true)
+        try fm.createDirectory(at: appleStore.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: support, withIntermediateDirectories: true)
+
+        let sentinel = manifest.appendingPathComponent("entries.json")
+        let sentinelData = Data(#"{"keep":true}"#.utf8)
+        try sentinelData.write(to: sentinel)
+        try Data("original-store".utf8).write(to: appleStore)
+
+        let assetIDURL = support.appendingPathComponent("aerials-asset-id")
+        let backupURL = support.appendingPathComponent("wallpaper-store-backup.plist")
+        try "ASSET-ID".write(to: assetIDURL, atomically: true, encoding: .utf8)
+        try Data("backup".utf8).write(to: backupURL)
+
+        XCTAssertTrue(AerialsInjector.isForeignWallpaperLocation(appleAerials))
+        XCTAssertTrue(AerialsInjector.isForeignWallpaperLocation(appleStore))
+
+        let injector = AerialsInjector(
+            touchesSystem: false,
+            aerialsRoot: appleAerials,
+            storeURL: appleStore,
+            supportDir: support
+        )
+        XCTAssertTrue(injector.hasLocalInstallMarker)
+        injector.uninstallIfPreviouslyInstalled()
+
+        XCTAssertEqual(try Data(contentsOf: sentinel), sentinelData)
+        XCTAssertEqual(try Data(contentsOf: appleStore), Data("original-store".utf8))
+        XCTAssertFalse(injector.hasLocalInstallMarker)
+        XCTAssertFalse(fm.fileExists(atPath: assetIDURL.path))
+        XCTAssertFalse(fm.fileExists(atPath: backupURL.path))
+
+        injector.uninstallIfPreviouslyInstalled()
+        XCTAssertEqual(try Data(contentsOf: sentinel), sentinelData)
+    }
+
+    func testUninstallIfPreviouslyInstalledCleansLocalCatalogOnce() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("VideoWallAerialsLocal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let videoURL = root.appendingPathComponent("clip.mp4")
+        try WallpaperIntegrationTests.renderTinyMP4(to: videoURL, durationSeconds: 0.6)
+
+        let injector = AerialsInjector(
+            touchesSystem: false,
+            aerialsRoot: root.appendingPathComponent("aerials"),
+            storeURL: root.appendingPathComponent("Store/Index.plist"),
+            supportDir: root.appendingPathComponent("support")
+        )
+        XCTAssertTrue(injector.install(videoURL: videoURL, displayName: "A"))
+        XCTAssertTrue(injector.hasLocalInstallMarker)
+        injector.uninstallIfPreviouslyInstalled()
+        XCTAssertFalse(injector.isHealthy())
+        XCTAssertFalse(injector.hasLocalInstallMarker)
+        injector.uninstallIfPreviouslyInstalled()
+        XCTAssertFalse(injector.hasLocalInstallMarker)
     }
 }
