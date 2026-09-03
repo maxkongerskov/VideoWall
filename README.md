@@ -16,7 +16,7 @@ https://github.com/maxkongerskov/VideoWall/releases/download/v1.1.0/demo.mp4
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange?logo=swift)](https://swift.org)
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-AVFoundation-blue)](https://developer.apple.com/xcode/swiftui/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-brightgreen)](#)
+[![Version](https://img.shields.io/badge/version-1.2.0-brightgreen)](#)
 
 </div>
 
@@ -27,6 +27,7 @@ https://github.com/maxkongerskov/VideoWall/releases/download/v1.1.0/demo.mp4
 - **🪶 Menu-bar agent** — no Dock presence, opens as a popover.
 - **🎞 Any video AVFoundation can decode** — mp4, mov, m4v, avi, hevc/h.265, mkv, mpeg, 3gp, ts/mts and more.
 - **🖥 Multi-display** — runs on every screen, and can follow you across Spaces.
+- **⏩ Playback speed** — click 1×–10× stops. 3× and up rebuild a scaled clip so 4K HEVC does not hitch; the live wallpaper stays up until the new frame is ready.
 - **✂️ Clip trim + loop** — set global start/end trim fractions for the active clip; loops cleanly with a crossfade.
 - **🔄 Cycle mode** — automatically rotates through your library with a blurred crossfade transition.
 - **🔋 Battery-aware** — pauses on battery, resumes on AC (optional).

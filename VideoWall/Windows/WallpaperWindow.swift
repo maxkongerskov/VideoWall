@@ -31,9 +31,10 @@ final class WallpaperWindow {
     private var activeContainer:   CALayer?
     private var activePlayerLayer: AVPlayerLayer?
 
-    /// Incoming container during a crossfade — kept so we can abort it if
-    /// setPlayer() is called before the animation completes.
+    /// Incoming container during a crossfade or speed swap — kept so we can
+    /// abort it if setPlayer() is called before the animation completes.
     private var pendingContainer:  CALayer?
+    private var pendingPlayerLayer: AVPlayerLayer?
 
     /// Outgoing container during a crossfade — tracked so rapid player changes
     /// don't leave orphaned blurred layers in the window.
@@ -97,19 +98,97 @@ final class WallpaperWindow {
     func setPlayer(_ player: AVQueuePlayer) {
         guard let hostLayer = window.contentView?.layer else { return }
 
-        // Abort any in-flight crossfade
-        pendingContainer?.removeFromSuperlayer()
-        pendingContainer  = nil
-        outgoingContainer?.removeFromSuperlayer()
-        outgoingContainer = nil
-        activeContainer?.removeFromSuperlayer()
+        cancelInFlightLayerTransition()
 
+        let outgoing = activeContainer
         let bounds = hostLayer.bounds
         let (container, avLayer) = makeLayerPair(player: player, bounds: bounds)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         hostLayer.addSublayer(container)
+        outgoing?.removeFromSuperlayer()
+        CATransaction.commit()
 
         activeContainer   = container
         activePlayerLayer = avLayer
+    }
+
+    /// Parks `player` in a full-size layer *under* the current video so it can
+    /// decode without covering the live frame (and without exposing the snapshot
+    /// / real wallpaper). Used by the speed-slider dual-player swap.
+    func attachIncomingUnderActive(_ player: AVQueuePlayer) {
+        guard let hostLayer = window.contentView?.layer else { return }
+        cancelInFlightLayerTransition()
+
+        let bounds = hostLayer.bounds
+        let (container, avLayer) = makeLayerPair(player: player, bounds: bounds)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let active = activeContainer {
+            hostLayer.insertSublayer(container, below: active)
+        } else {
+            hostLayer.addSublayer(container)
+        }
+        CATransaction.commit()
+        pendingContainer   = container
+        pendingPlayerLayer = avLayer
+    }
+
+    var isIncomingReadyForDisplay: Bool {
+        pendingPlayerLayer?.isReadyForDisplay == true
+    }
+
+    /// Reveals the parked incoming player by dropping the outgoing layer. The
+    /// incoming layer is already full-size and under the current video, so this
+    /// is a hard cut with no empty frame.
+    func commitIncomingPlayer() {
+        guard let incoming = pendingContainer else { return }
+        let outgoing = activeContainer
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        outgoing?.removeFromSuperlayer()
+        CATransaction.commit()
+        activeContainer    = incoming
+        activePlayerLayer  = pendingPlayerLayer
+        pendingContainer   = nil
+        pendingPlayerLayer = nil
+        outgoingContainer?.removeFromSuperlayer()
+        outgoingContainer = nil
+    }
+
+    func discardIncomingPlayer() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pendingPlayerLayer?.player = nil
+        pendingContainer?.removeFromSuperlayer()
+        CATransaction.commit()
+        pendingContainer   = nil
+        pendingPlayerLayer = nil
+    }
+
+    /// Drops the parked incoming layer only if it still belongs to `player`,
+    /// so a stale speed-swap abort cannot unpark a newer swap.
+    func discardIncomingIfPlayer(_ player: AVQueuePlayer) {
+        guard pendingPlayerLayer?.player === player else { return }
+        discardIncomingPlayer()
+    }
+
+    /// Drops leftover crossfade / speed-swap layers without touching the live
+    /// player. The delayed crossfade cleanup Task is then a no-op.
+    func cancelInFlightLayerTransition() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if pendingContainer !== activeContainer {
+            pendingPlayerLayer?.player = nil
+            pendingContainer?.removeFromSuperlayer()
+        }
+        if outgoingContainer !== activeContainer {
+            outgoingContainer?.removeFromSuperlayer()
+        }
+        CATransaction.commit()
+        pendingContainer    = nil
+        pendingPlayerLayer  = nil
+        outgoingContainer   = nil
     }
 
     func clearPlayer() {
@@ -118,13 +197,15 @@ final class WallpaperWindow {
             player.pause()
         }
         activePlayerLayer?.player = nil
+        pendingPlayerLayer?.player = nil
         activeContainer?.removeFromSuperlayer()
         pendingContainer?.removeFromSuperlayer()
         outgoingContainer?.removeFromSuperlayer()
-        activeContainer   = nil
-        activePlayerLayer = nil
-        pendingContainer  = nil
-        outgoingContainer = nil
+        activeContainer    = nil
+        activePlayerLayer  = nil
+        pendingContainer   = nil
+        pendingPlayerLayer = nil
+        outgoingContainer  = nil
         snapshotLayer.contents = nil
     }
 
@@ -210,6 +291,7 @@ final class WallpaperWindow {
             guard let self else { return }
             if self.pendingContainer === inContainer {
                 self.pendingContainer = nil
+                self.pendingPlayerLayer = nil
             }
             if let outContainer, self.outgoingContainer === outContainer {
                 self.outgoingContainer = nil

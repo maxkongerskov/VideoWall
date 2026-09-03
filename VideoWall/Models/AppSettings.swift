@@ -64,6 +64,26 @@ final class AppSettings: ObservableObject {
         didSet { save(trimEnd, forKey: .trimEnd) }
     }
 
+    /// Discrete 1×–10× click stops; Pause is the Pause button.
+    @Published var playbackRate: Double {
+        didSet {
+            let clamped = PlaybackRateSlider.clamped(playbackRate)
+            if playbackRate != clamped {
+                playbackRate = clamped
+                return
+            }
+            persistRateTask?.cancel()
+            persistRateTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, let self else { return }
+                self.save(self.playbackRate, forKey: .playbackRate)
+                self.persistRateTask = nil
+            }
+        }
+    }
+
+    private var persistRateTask: Task<Void, Never>?
+
     // MARK: System
 
     @Published var launchAtLogin: Bool {
@@ -98,6 +118,8 @@ final class AppSettings: ObservableObject {
         cycleBlurRadius        = d.double(forKey: Key.cycleBlurRadius.rawValue, default: 4.0)
         trimStart              = d.double(forKey: Key.trimStart.rawValue, default: 0.0)
         trimEnd                = d.double(forKey: Key.trimEnd.rawValue, default: 1.0)
+        let storedRate         = d.double(forKey: Key.playbackRate.rawValue, default: 1.0)
+        playbackRate           = PlaybackRateSlider.clamped(storedRate)
         launchAtLogin          = d.bool(forKey: Key.launchAtLogin.rawValue, default: false)
         pauseOnBattery         = d.bool(forKey: Key.pauseOnBattery.rawValue, default: true)
         pauseOnScreenRecording = d.bool(forKey: Key.pauseOnScreenRecording.rawValue, default: true)
@@ -156,7 +178,7 @@ final class AppSettings: ObservableObject {
     private enum Key: String {
         case playOnAllSpaces, playOnLockAndScreensaver, isMuted, volume, resolution
         case playbackMode
-        case cycleBlurRadius, trimStart, trimEnd
+        case cycleBlurRadius, trimStart, trimEnd, playbackRate
         case launchAtLogin, pauseOnBattery, pauseOnScreenRecording
         case selectedVideoID
         // Legacy keys — read-only migration, not written anymore

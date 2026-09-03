@@ -255,6 +255,30 @@ final class DurationFormattingTests: XCTestCase {
     }
 }
 
+// MARK: - Playback rate stops
+
+final class PlaybackRateStopsTests: XCTestCase {
+
+    func testStopsAreOneThroughTen() {
+        XCTAssertEqual(PlaybackRateStops.stops, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    }
+
+    func testClampedSnapsToNearestStop() {
+        XCTAssertEqual(PlaybackRateStops.clamped(1), 1)
+        XCTAssertEqual(PlaybackRateStops.clamped(2.4), 2)
+        XCTAssertEqual(PlaybackRateStops.clamped(2.6), 3)
+        XCTAssertEqual(PlaybackRateStops.clamped(10), 10)
+        XCTAssertEqual(PlaybackRateStops.clamped(99), 10)
+        XCTAssertEqual(PlaybackRateStops.clamped(0), 1)
+    }
+
+    func testClampedRejectsNonFinite() {
+        XCTAssertEqual(PlaybackRateStops.clamped(.nan), 1)
+        XCTAssertEqual(PlaybackRateStops.clamped(.infinity), 1)
+        XCTAssertEqual(PlaybackRateStops.clamped(-.infinity), 1)
+    }
+}
+
 // MARK: - PlaybackMode migration / consistency
 
 final class PlaybackModeSettingsTests: XCTestCase {

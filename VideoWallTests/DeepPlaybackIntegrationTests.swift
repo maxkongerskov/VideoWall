@@ -199,6 +199,40 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         XCTAssertEqual(wallpaper.debugWindowCount, NSScreen.screens.count)
     }
 
+    func testSpeedSliderCompositionSwapWithWindowsDoesNotCrash() async throws {
+        runSetup()
+        let previousRate = settings.playbackRate
+        settings.playbackRate = 1
+        defer { settings.playbackRate = previousRate }
+        let video = try await importClip(named: "a.mp4")
+        wallpaper.play(video: video)
+        let playDeadline = Date().addingTimeInterval(5)
+        while Date() < playDeadline, !wallpaper.isPlaying {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(wallpaper.isPlaying)
+
+        wallpaper.setPlaybackRate(3)
+        let swapDeadline = Date().addingTimeInterval(8)
+        while Date() < swapDeadline, wallpaper.debugRateSwapInFlight {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertFalse(wallpaper.debugRateSwapInFlight)
+        XCTAssertEqual(settings.playbackRate, 3)
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+        XCTAssertGreaterThan(wallpaper.debugCompositionSpeedup, 1.01)
+        XCTAssertEqual(wallpaper.debugWindowCount, NSScreen.screens.count,
+                       "speed swap must not tear down wallpaper windows")
+
+        wallpaper.setPlaybackRate(1)
+        let nativeDeadline = Date().addingTimeInterval(8)
+        while Date() < nativeDeadline, wallpaper.debugRateSwapInFlight {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(settings.playbackRate, 1)
+        XCTAssertLessThan(wallpaper.debugCompositionSpeedup, 1.01)
+    }
+
     func testResolutionChangeReplaysCurrent() async throws {
         runSetup()
         let video = try await importClip(named: "a.mp4")

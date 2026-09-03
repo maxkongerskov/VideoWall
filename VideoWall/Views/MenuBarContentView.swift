@@ -161,6 +161,16 @@ struct ControlsView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
+            sectionLabel("Speed")
+
+            PlaybackRateStops(
+                rate: Binding(
+                    get: { settings.playbackRate },
+                    set: { wallpaper.setPlaybackRate($0) }
+                )
+            )
+            .padding(.horizontal, 14)
+
             sectionLabel("Clip trim")
 
             VStack(alignment: .leading, spacing: 8) {

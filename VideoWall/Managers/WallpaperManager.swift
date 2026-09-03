@@ -31,6 +31,29 @@ struct ClipBounds: Equatable, Sendable {
     }
 }
 
+/// First caller wins; later `take()` calls return false.
+/// Used so preroll completion + cancelPendingPrerolls cannot resume twice.
+private final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+
+    nonisolated func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if taken { return false }
+        taken = true
+        return true
+    }
+}
+
+/// Transfers an AVMutableComposition off a background build without Sendable.
+private final class CompositionBuildBox: @unchecked Sendable {
+    var composition: AVMutableComposition?
+    var sourceSeconds: Double = 0
+    var afterSeconds: Double = 0
+    var failed = false
+}
+
 // MARK: - WallpaperManager
 
 @MainActor
@@ -67,6 +90,16 @@ final class WallpaperManager: ObservableObject {
     private var player:       AVQueuePlayer?
     private var looper:       AVPlayerLooper?
     private var timeObserver: Any?          // trim end-enforcer (non-loop path)
+    /// Native URL asset for the current clip; kept so a rate swap can rebuild a
+    /// per-stop composition on a hidden player without tearing down the visible one.
+    private var sourceAsset: AVURLAsset?
+    /// Display-rate speedup baked into the current item. 1 if native; else the
+    /// 3...10 stop used to scaleTimeRange. Time map: source = t * speedup + origin.
+    private var activeCompositionSpeedup: Double = 1
+    /// True when the current item is a per-stop scaled composition, not native.
+    private var usesCompositionItem: Bool { activeCompositionSpeedup > 1.01 }
+    /// Source-seconds at composition time 0 (trim start baked into the composition).
+    private var compositionSourceOrigin: Double = 0
 
     // MARK: Private – cycle/loop crossfade (single boundary observer)
 
@@ -83,6 +116,7 @@ final class WallpaperManager: ObservableObject {
     /// Cancelled in stopPlayer() so a stale task can't restart a stopped player.
     private var setupTask:    Task<Void, Never>?
     private var slowDownTask: Task<Void, Never>?
+    private var rateSwapTask: Task<Void, Never>?
 
     // MARK: Private – auto-pause coordination
 
@@ -272,35 +306,39 @@ final class WallpaperManager: ObservableObject {
     private func playCold(video: VideoItem, url: URL) {
         stopPlayer()
 
-        let (queuePlayer, item, asset) = makePlayer(url: url)
-        player = queuePlayer
-
-        wallpaperWindows.forEach { $0.setPlayer(queuePlayer) }
-
-        armPlayback(item: item, player: queuePlayer, asset: asset)
+        setupTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let built = await self.makePlayer(url: url)
+            guard !Task.isCancelled else {
+                built.player.pause()
+                built.player.replaceCurrentItem(with: nil)
+                return
+            }
+            self.adoptPrepared(built)
+            self.player = built.player
+            self.wallpaperWindows.forEach { $0.setPlayer(built.player) }
+            await self.armPlayback(item: built.item, player: built.player, asset: built.asset)
+        }
     }
 
     /// Sets up trim/loop, starts playback (respecting auto-pause), and arms the
     /// boundary crossfade observer for a freshly built player.
-    private func armPlayback(item: AVPlayerItem, player: AVQueuePlayer, asset: AVURLAsset) {
+    private func armPlayback(item: AVPlayerItem, player: AVQueuePlayer, asset: AVURLAsset) async {
         let trimStart   = settings.trimStart
         let trimEnd     = settings.trimEnd
         let mode        = settings.playbackMode
 
-        setupTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let bounds = await self.setupLoopAndTrim(
-                item:      item,
-                player:    player,
-                asset:     asset,
-                trimStart: trimStart,
-                trimEnd:   trimEnd,
-                mode:      mode
-            )
-            guard !Task.isCancelled else { return }
-            self.armBoundaryObserver(player: player, bounds: bounds, mode: mode)
-            self.setupTask = nil
-        }
+        let bounds = await setupLoopAndTrim(
+            item:      item,
+            player:    player,
+            asset:     asset,
+            trimStart: trimStart,
+            trimEnd:   trimEnd,
+            mode:      mode
+        )
+        guard !Task.isCancelled else { return }
+        armBoundaryObserver(player: player, bounds: bounds, mode: mode)
+        setupTask = nil
     }
 
     // MARK: – Rate ramps (~1.4 s, 28 steps, cosine family)
@@ -322,6 +360,10 @@ final class WallpaperManager: ObservableObject {
     private func rampDown() {
         guard let player else { return }
         isPlaying = false
+        snapshotResumeTask?.cancel()
+        snapshotMirror.pauseCapture()
+        cancelInFlightSpeedSwap()
+        player.cancelPendingPrerolls()
         slowDownTask?.cancel()
         let capturedPlayer = player
         slowDownTask = Task { @MainActor [weak self] in
@@ -332,6 +374,10 @@ final class WallpaperManager: ObservableObject {
     private func rampUp() {
         guard let player else { return }
         isPlaying = true
+        snapshotResumeTask?.cancel()
+        snapshotMirror.pauseCapture()
+        cancelInFlightSpeedSwap()
+        player.cancelPendingPrerolls()
         slowDownTask?.cancel()
         let capturedPlayer = player
         slowDownTask = Task { @MainActor [weak self] in
@@ -341,9 +387,10 @@ final class WallpaperManager: ObservableObject {
 
     private func applySlowDownRamp(player: AVQueuePlayer) async {
         let steps = 28; let stepMs = 1_400 / steps
+        let from = Double(player.rate)
         for i in 0...steps {
             if Task.isCancelled { return }
-            player.rate = max(0, Float(cos(Double(i) / Double(steps) * .pi / 2)))
+            player.rate = max(0, Float(from * cos(Double(i) / Double(steps) * .pi / 2)))
             if i < steps { try? await Task.sleep(for: .milliseconds(stepMs)) }
         }
         if !Task.isCancelled { player.pause() }
@@ -352,13 +399,44 @@ final class WallpaperManager: ObservableObject {
 
     private func applySpeedUpRamp(player: AVQueuePlayer) async {
         let steps = 28; let stepMs = 1_400 / steps
+        let target = internalPlaybackRate
         for i in 0...steps {
             if Task.isCancelled { return }
-            player.rate = min(1, Float(sin(Double(i) / Double(steps) * .pi / 2)))
+            player.rate = min(target, target * Float(sin(Double(i) / Double(steps) * .pi / 2)))
             if i < steps { try? await Task.sleep(for: .milliseconds(stepMs)) }
         }
-        if !Task.isCancelled { player.rate = 1.0 }
+        if !Task.isCancelled { applyChosenRate(to: player) }
         slowDownTask = nil
+    }
+
+    private var displayRate: Double {
+        PlaybackRateStops.clamped(settings.playbackRate)
+    }
+
+    private var wantsComposition: Bool { displayRate >= 3 }
+
+    /// AVPlayer.rate for the *current item*: 1 or 2 on native; always 1.0 on a
+    /// per-stop composition. Never assigns 3...10 to a native 4K HEVC item.
+    private var internalPlaybackRate: Float {
+        if usesCompositionItem { return 1.0 }
+        return Float(min(max(displayRate, 1), 2))
+    }
+
+    /// SnapshotMirror BGRA tap is only safe on 1x native. Composition plays at
+    /// player.rate == 1.0 internally — that must NOT resume capture.
+    private var shouldResumeSnapshot: Bool {
+        abs(displayRate - 1) < 0.01 && !usesCompositionItem
+    }
+
+    private func applyChosenRate(to player: AVQueuePlayer) {
+        let rate = internalPlaybackRate
+        player.rate = rate
+        if shouldResumeSnapshot {
+            scheduleSnapshotResume()
+        } else {
+            snapshotResumeTask?.cancel()
+            snapshotMirror.pauseCapture()
+        }
     }
 
     /// Starts or holds the player based on current pause policy (no ramp).
@@ -369,7 +447,7 @@ final class WallpaperManager: ObservableObject {
             autoPauseReasons: autoPauseReasons
         )
         if should {
-            player.play()
+            applyChosenRate(to: player)
             isPlaying = true
         } else {
             player.pause()
@@ -388,6 +466,53 @@ final class WallpaperManager: ObservableObject {
 
     func toggleMute() {
         settings.isMuted.toggle()
+    }
+
+    func setPlaybackRate(_ value: Double) {
+        let rate = PlaybackRateStops.clamped(value)
+        settings.playbackRate = rate
+        guard let player else { return }
+
+        // 1↔2 native: never pause+preroll; just set player.rate.
+        let needsNewItem = rate >= 3 || usesCompositionItem
+        if !needsNewItem {
+            guard isPlaying else { return }
+            applyChosenRate(to: player)
+            return
+        }
+
+        // Already showing a composition built for this exact display stop.
+        if usesCompositionItem, abs(activeCompositionSpeedup - rate) < 0.01 {
+            return
+        }
+
+        rateSwapTask?.cancel()
+        regimeSwapGeneration &+= 1
+        let swapGeneration = regimeSwapGeneration
+        rateSwapTask = Task { @MainActor [weak self] in
+            await self?.swapPlaybackRegime(swapGeneration: swapGeneration)
+        }
+    }
+
+    /// Invalidates an in-flight hidden dual-player speed swap.
+    private var regimeSwapGeneration: UInt64 = 0
+
+    private func cancelInFlightSpeedSwap() {
+        rateSwapTask?.cancel()
+        rateSwapTask = nil
+        regimeSwapGeneration &+= 1
+    }
+
+    private var snapshotResumeTask: Task<Void, Never>?
+
+    private func scheduleSnapshotResume() {
+        snapshotResumeTask?.cancel()
+        snapshotResumeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.snapshotMirror.resumeCapture()
+            self?.snapshotResumeTask = nil
+        }
     }
 
     // MARK: – Resolution
@@ -424,21 +549,431 @@ final class WallpaperManager: ObservableObject {
         }
     }
 
-    // MARK: – Private: player construction
+    // MARK: - Private: player construction
 
-    /// Builds a player for `url`, wires the snapshot mirror, and returns the
-    /// pieces needed for trim/loop setup. Resolution is applied during arm.
-    private func makePlayer(url: URL) -> (AVQueuePlayer, AVPlayerItem, AVURLAsset) {
+    private struct PreparedPlayer {
+        let player: AVQueuePlayer
+        let item: AVPlayerItem
+        let asset: AVURLAsset
+        let compositionSpeedup: Double
+        let compositionOrigin: Double
+    }
+
+    /// Commits a prepared player as the current speed regime. `makePlayer`
+    /// itself must not write these — a cancelled swap's build can finish late.
+    private func adoptPrepared(_ built: PreparedPlayer) {
+        sourceAsset = built.asset
+        activeCompositionSpeedup = built.compositionSpeedup
+        compositionSourceOrigin = built.compositionOrigin
+    }
+
+    /// Builds a player for `url` in the *current* speed regime. 3x...10x starts
+    /// on a per-stop scaled composition (not native-then-swap). Resolution is applied during arm.
+    private func makePlayer(url: URL) async -> PreparedPlayer {
         let asset = AVURLAsset(url: url)
-        let item  = AVPlayerItem(asset: asset)
+        return await makePlayer(asset: asset)
+    }
+
+    private func makePlayer(asset: AVURLAsset) async -> PreparedPlayer {
+        let targetSpeedup = wantsComposition ? displayRate : 1
+        let (item, composed, origin) = await makePlaybackItem(
+            from: asset,
+            wantComposition: wantsComposition,
+            speedup: targetSpeedup
+        )
 
         let queuePlayer = AVQueuePlayer(playerItem: item)
         queuePlayer.volume          = settings.isMuted ? 0 : settings.volume
         queuePlayer.actionAtItemEnd = .none
+        queuePlayer.automaticallyWaitsToMinimizeStalling = false
         // Wallpaper must not block idle sleep / screensaver.
         queuePlayer.preventsDisplaySleepDuringVideoPlayback = false
         snapshotMirror.attach(to: item, player: queuePlayer)
-        return (queuePlayer, item, asset)
+        // Always pause the 32BGRA tap until the player is on-screen at 1x native.
+        snapshotMirror.pauseCapture()
+        return PreparedPlayer(
+            player: queuePlayer,
+            item: item,
+            asset: asset,
+            compositionSpeedup: composed ? targetSpeedup : 1,
+            compositionOrigin: origin
+        )
+    }
+
+    /// Native item for 1x/2x; per-stop composition for 3x...10x. Falls back to
+    /// native if scaleTimeRange does not actually shorten duration (avoids
+    /// slow-mo of a full-length item). Never plays rate 0.1 on a native item.
+    private func makePlaybackItem(
+        from asset: AVURLAsset,
+        wantComposition: Bool,
+        speedup: Double
+    ) async -> (item: AVPlayerItem, composed: Bool, origin: Double) {
+        func nativeItem() -> AVPlayerItem {
+            let item = AVPlayerItem(asset: asset)
+            item.preferredForwardBufferDuration = 3
+            return item
+        }
+
+        guard wantComposition, speedup > 1.01 else {
+            return (nativeItem(), false, 0)
+        }
+
+        guard let duration = try? await asset.load(.duration),
+              duration.isValid, !duration.isIndefinite,
+              duration.seconds > 0 else {
+            print("VideoWall: \(speedup)x composition skipped (no duration); using native")
+            return (nativeItem(), false, 0)
+        }
+
+        let bounds = ClipBounds.compute(
+            total: duration.seconds,
+            trimStart: settings.trimStart,
+            trimEnd: settings.trimEnd
+        )
+        guard bounds.length > 0.15 else {
+            print("VideoWall: \(speedup)x composition skipped (trim too short); using native")
+            return (nativeItem(), false, 0)
+        }
+
+        let start = CMTime(seconds: bounds.start, preferredTimescale: 600)
+        let end   = CMTime(seconds: bounds.end,   preferredTimescale: 600)
+        let range = CMTimeRange(start: start, end: end)
+
+        if let composition = await makeScaledComposition(from: asset, sourceRange: range, speedup: speedup) {
+            let item = AVPlayerItem(asset: composition)
+            item.preferredForwardBufferDuration = 3
+            return (item, true, bounds.start)
+        }
+
+        return (nativeItem(), false, 0)
+    }
+
+    /// Insert video only (wallpaper is muted), then scale the full inserted range
+    /// to duration/speedup. Returns nil unless composition.duration is ~source/speedup.
+    /// insert/scale run off the main actor so the live wallpaper does not freeze.
+    private func makeScaledComposition(
+        from asset: AVURLAsset,
+        sourceRange: CMTimeRange,
+        speedup: Double
+    ) async -> AVMutableComposition? {
+        guard sourceRange.duration.seconds > 0, speedup > 1.01 else { return nil }
+
+        guard let videoTracks = try? await asset.loadTracks(withMediaType: .video),
+              !videoTracks.isEmpty else {
+            print("VideoWall: \(speedup)x composition skipped (no video track); using native")
+            return nil
+        }
+
+        var transforms: [Int: CGAffineTransform] = [:]
+        for (index, track) in videoTracks.enumerated() {
+            if let transform = try? await track.load(.preferredTransform) {
+                transforms[index] = transform
+            }
+        }
+
+        nonisolated(unsafe) let tracks = videoTracks
+        let range = sourceRange
+        let box = CompositionBuildBox()
+        await Task.detached(priority: .userInitiated) {
+            let composition = AVMutableComposition()
+            for (index, track) in tracks.enumerated() {
+                guard let compTrack = composition.addMutableTrack(
+                    withMediaType: .video,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                ) else { continue }
+                do {
+                    try compTrack.insertTimeRange(range, of: track, at: .zero)
+                } catch {
+                    box.failed = true
+                    return
+                }
+                if let transform = transforms[index] {
+                    compTrack.preferredTransform = transform
+                }
+            }
+
+            let inserted = composition.duration
+            guard inserted.isValid, !inserted.isIndefinite, inserted.seconds > 0 else {
+                box.failed = true
+                return
+            }
+
+            let scaled = CMTimeMultiplyByFloat64(inserted, multiplier: 1.0 / speedup)
+            composition.scaleTimeRange(
+                CMTimeRange(start: .zero, duration: inserted),
+                toDuration: scaled
+            )
+            box.sourceSeconds = inserted.seconds
+            box.afterSeconds = composition.duration.seconds
+            box.composition = composition
+        }.value
+
+        guard !box.failed, let composition = box.composition else {
+            print("VideoWall: \(speedup)x composition insert failed; using native")
+            return nil
+        }
+
+        let sourceSeconds = box.sourceSeconds
+        let after = box.afterSeconds
+        let expected = sourceSeconds / speedup
+        let shortened = after > 0 && after < sourceSeconds * 0.5
+        let close = expected > 0 && abs(after / expected - 1) < 0.2
+        if shortened && close {
+            print(String(format: "VideoWall: %.0fx composition %.2fs -> %.2fs", speedup, sourceSeconds, after))
+            return composition
+        }
+
+        print(String(
+            format: "VideoWall: scaleTimeRange failed (composition %.2fs, source %.2fs, speedup %.0fx); using native (will not play full-length item at rate %.2f)",
+            after,
+            sourceSeconds,
+            speedup,
+            displayRate
+        ))
+        return nil
+    }
+
+    /// Dual-player speed swap: keep the visible player playing, park the new
+    /// item under it, preroll into that real layer, then drop the outgoing
+    /// layer. Never tear down the live layer first — that flashes the snapshot
+    /// / real wallpaper (the "static screensaver" glitch).
+    private func isRegimeSwapCurrent(_ generation: UInt64, visible: AVQueuePlayer) -> Bool {
+        !Task.isCancelled && generation == regimeSwapGeneration && player === visible
+    }
+
+    private func discardHiddenPlayer(_ player: AVQueuePlayer) {
+        player.cancelPendingPrerolls()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+    }
+
+    private func restoreSnapshotMirror(on player: AVQueuePlayer) {
+        if let item = player.currentItem {
+            snapshotMirror.attach(to: item, player: player)
+        }
+        if shouldResumeSnapshot {
+            scheduleSnapshotResume()
+        } else {
+            snapshotResumeTask?.cancel()
+            snapshotMirror.pauseCapture()
+        }
+    }
+
+    /// Waits until `player.status == .readyToPlay`. Returns false on failure,
+    /// cancel, or timeout. Must not call `preroll` unless this returns true —
+    /// AVPlayer throws `NSInvalidArgumentException` otherwise (Xcode crash).
+    private func waitUntilReadyToPlay(player: AVQueuePlayer, timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return false }
+            switch player.status {
+            case .readyToPlay: return true
+            case .failed: return false
+            default:
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+        return player.status == .readyToPlay
+    }
+
+    private func waitUntilIncomingReadyForDisplay(timeout: Duration) async -> Bool {
+        guard !wallpaperWindows.isEmpty else { return false }
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return false }
+            if wallpaperWindows.contains(where: \.isIncomingReadyForDisplay) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        return wallpaperWindows.contains(where: \.isIncomingReadyForDisplay)
+    }
+
+    /// Preroll into the incoming wallpaper layer. Skip when not ready rather
+    /// than throwing. Completion / cancelPendingPrerolls can fire twice.
+    private func prerollIfReady(player: AVQueuePlayer, at rate: Float) async -> Bool {
+        guard !Task.isCancelled, player.status == .readyToPlay else { return false }
+        return await withCheckedContinuation { continuation in
+            let once = OnceFlag()
+            guard player.status == .readyToPlay else {
+                continuation.resume(returning: false)
+                return
+            }
+            player.preroll(atRate: rate) { success in
+                guard once.take() else { return }
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    private func sourceSeconds(of player: AVQueuePlayer, speedup: Double, origin: Double) -> Double {
+        player.currentTime().seconds * speedup + origin
+    }
+
+    private func seekHidden(
+        _ hidden: AVQueuePlayer,
+        toSourceSeconds sourceSeconds: Double,
+        speedup: Double,
+        origin: Double,
+        bounds: ClipBounds
+    ) async {
+        let rawSeek: Double
+        if speedup > 1.01 {
+            rawSeek = (sourceSeconds - origin) / speedup
+        } else {
+            rawSeek = sourceSeconds
+        }
+        let seekSeconds: Double
+        if bounds.length > 0 {
+            seekSeconds = min(max(rawSeek, bounds.start), max(bounds.end - 0.05, bounds.start))
+        } else {
+            seekSeconds = max(0, rawSeek)
+        }
+        let seekTime = CMTime(seconds: seekSeconds, preferredTimescale: 600)
+        _ = await hidden.seek(
+            to: seekTime,
+            toleranceBefore: .zero,
+            toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600)
+        )
+    }
+
+    private func swapPlaybackRegime(swapGeneration: UInt64) async {
+        defer {
+            if swapGeneration == regimeSwapGeneration {
+                rateSwapTask = nil
+            }
+        }
+        guard let visiblePlayer = player, let asset = sourceAsset else { return }
+
+        let previousSpeedup = activeCompositionSpeedup
+        let previousOrigin = compositionSourceOrigin
+
+        slowDownTask?.cancel()
+        slowDownTask = nil
+        invalidateTransition(cancelTask: true)
+
+        let outLooper = looper
+        let outTimeObserver = timeObserver
+        timeObserver = nil
+        looper = nil
+        stopBoundaryObserver()
+
+        let built = await makePlayer(asset: asset)
+        let hidden = built.player
+        let item = built.item
+
+        func abortHidden() {
+            wallpaperWindows.forEach { $0.discardIncomingIfPlayer(hidden) }
+            discardHiddenPlayer(hidden)
+            // A newer swap owns manager state — do not restore over it.
+            guard swapGeneration == regimeSwapGeneration, player === visiblePlayer else { return }
+            if let obs = timeObserver {
+                hidden.removeTimeObserver(obs)
+                timeObserver = nil
+            }
+            looper = nil
+            timeObserver = outTimeObserver
+            looper = outLooper
+            restoreSnapshotMirror(on: visiblePlayer)
+        }
+
+        guard isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) else {
+            abortHidden()
+            return
+        }
+
+        let hiddenIsComposition = built.compositionSpeedup > 1.01
+
+        // Scale failed and we were already native — stay on the visible item at ≤2×.
+        if !hiddenIsComposition && previousSpeedup <= 1.01 {
+            abortHidden()
+            if isPlaying, player === visiblePlayer {
+                applyChosenRate(to: visiblePlayer)
+            }
+            return
+        }
+
+        let mode = settings.playbackMode
+        let bounds = await setupLoopAndTrim(
+            item: item,
+            player: hidden,
+            asset: asset,
+            trimStart: settings.trimStart,
+            trimEnd: settings.trimEnd,
+            mode: mode,
+            restartFromTrimStart: false,
+            applyPlaybackState: false,
+            itemIsComposition: hiddenIsComposition
+        )
+        guard isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) else {
+            abortHidden()
+            return
+        }
+
+        // Remap from the *current* playhead, not the time at swap start —
+        // composition work can take a while and the visible clip kept playing.
+        let speedup = built.compositionSpeedup
+        let origin = built.compositionOrigin
+        await seekHidden(
+            hidden,
+            toSourceSeconds: sourceSeconds(of: visiblePlayer, speedup: previousSpeedup, origin: previousOrigin),
+            speedup: speedup,
+            origin: origin,
+            bounds: bounds
+        )
+
+        guard isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) else {
+            abortHidden()
+            return
+        }
+
+        wallpaperWindows.forEach { $0.attachIncomingUnderActive(hidden) }
+
+        let prerollRate: Float = hiddenIsComposition ? 1.0 : Float(min(max(displayRate, 1), 2))
+        hidden.volume = 0
+        if isPlaying, !wallpaperWindows.isEmpty {
+            _ = await waitUntilReadyToPlay(player: hidden, timeout: .milliseconds(400))
+            if isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) {
+                _ = await prerollIfReady(player: hidden, at: prerollRate)
+            }
+            if isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) {
+                _ = await waitUntilIncomingReadyForDisplay(timeout: .milliseconds(400))
+            }
+        }
+
+        guard isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) else {
+            abortHidden()
+            return
+        }
+
+        adoptPrepared(built)
+        self.player = hidden
+        wallpaperWindows.forEach { $0.commitIncomingPlayer() }
+
+        if isPlaying {
+            hidden.playImmediately(atRate: prerollRate)
+            if shouldResumeSnapshot {
+                scheduleSnapshotResume()
+            } else {
+                snapshotResumeTask?.cancel()
+                snapshotMirror.pauseCapture()
+            }
+        } else {
+            hidden.pause()
+            snapshotResumeTask?.cancel()
+            snapshotMirror.pauseCapture()
+        }
+        hidden.volume = settings.isMuted ? 0 : settings.volume
+
+        armBoundaryObserver(player: hidden, bounds: bounds, mode: mode)
+
+        if let obs = outTimeObserver {
+            visiblePlayer.removeTimeObserver(obs)
+        }
+        visiblePlayer.cancelPendingPrerolls()
+        visiblePlayer.pause()
+        visiblePlayer.replaceCurrentItem(with: nil)
+        _ = outLooper
     }
 
     // MARK: – Private: player teardown
@@ -450,6 +985,8 @@ final class WallpaperManager: ObservableObject {
         // any surviving crossfade (user or auto) treats itself as obsolete.
         setupTask?.cancel();      setupTask      = nil
         slowDownTask?.cancel();   slowDownTask   = nil
+        cancelInFlightSpeedSwap()
+        player?.cancelPendingPrerolls()
         invalidateTransition(cancelTask: true)
 
         snapshotMirror.stop()
@@ -463,6 +1000,9 @@ final class WallpaperManager: ObservableObject {
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player = nil
+        sourceAsset = nil
+        activeCompositionSpeedup = 1
+        compositionSourceOrigin = 0
 
         wallpaperWindows.forEach { $0.clearPlayer() }
     }
@@ -509,9 +1049,8 @@ final class WallpaperManager: ObservableObject {
             height: (absSize.height * scale).rounded()
         )
 
-        // Guard against a stale async result landing on an item that has
-        // already been swapped out by a newer play()/transition.
-        guard player?.currentItem === item else { return }
+        // Apply to this item. Callers discard the player if the work is stale
+        // (hidden speed-swap item is not yet self.player.currentItem).
         item.videoComposition = composition
     }
 
@@ -519,27 +1058,53 @@ final class WallpaperManager: ObservableObject {
 
     /// Configures trim/loop for a freshly built player, starts playback (subject
     /// to auto-pause), and returns the effective clip bounds.
+    ///
+    /// On a per-stop composition item, trim is already baked into the inserted
+    /// source range — bounds live in composition time (0...duration) and the
+    /// looper covers the whole item.
     @discardableResult
     private func setupLoopAndTrim(item:      AVPlayerItem,
                                    player:    AVQueuePlayer,
                                    asset:     AVURLAsset,
                                    trimStart: Double,
                                    trimEnd:   Double,
-                                   mode:      PlaybackMode) async -> ClipBounds {
+                                   mode:      PlaybackMode,
+                                   restartFromTrimStart: Bool = true,
+                                   applyPlaybackState: Bool = true,
+                                   itemIsComposition: Bool? = nil) async -> ClipBounds {
 
-        // Resolution composition before first frame.
-        await applyResolution(settings.resolution, to: item, asset: asset)
-        if Task.isCancelled { return .none }
+        let composedItem = itemIsComposition ?? usesCompositionItem
+
+        // Native items get the optional render-size composition. A per-stop scaled
+        // composition is already a different timebase; skip rather than attach
+        // URL-asset instructions that span the unscaled duration.
+        if !composedItem {
+            await applyResolution(settings.resolution, to: item, asset: asset)
+            if Task.isCancelled { return .none }
+        }
+
+        if composedItem {
+            return await setupLoopAndTrimOnComposition(
+                item: item,
+                player: player,
+                mode: mode,
+                applyPlaybackState: applyPlaybackState
+            )
+        }
 
         let hasTrim = trimStart > 0.005 || trimEnd < 0.995
         let loop    = (mode == .loop)
         let cycle   = (mode == .cycle)
 
+        func finish(_ bounds: ClipBounds) -> ClipBounds {
+            if applyPlaybackState { applyImmediatePlaybackState(to: player) }
+            return bounds
+        }
+
         // Fast path: no trim, no cycle, no loop — duration not needed.
         if !hasTrim && !cycle && !loop {
             if Task.isCancelled { return .none }
-            applyImmediatePlaybackState(to: player)
-            return .none
+            return finish(.none)
         }
 
         // We need duration for trimming, cycle timing, or loop crossfade scheduling.
@@ -547,8 +1112,7 @@ final class WallpaperManager: ObservableObject {
               duration.isValid, !duration.isIndefinite,
               duration.seconds > 0 else {
             if Task.isCancelled { return .none }
-            applyImmediatePlaybackState(to: player)
-            return .none
+            return finish(.none)
         }
 
         if Task.isCancelled { return .none }
@@ -562,7 +1126,7 @@ final class WallpaperManager: ObservableObject {
             // HARD RULE: cycle mode never creates a looper. The video plays
             // exactly once from trimStart to trimEnd, then the boundary observer
             // or the end-notification safety net advances to the next video.
-            if bounds.start > 0.005 {
+            if restartFromTrimStart, bounds.start > 0.005 {
                 _ = await player.seek(
                     to: startCMT,
                     toleranceBefore: .zero,
@@ -570,8 +1134,7 @@ final class WallpaperManager: ObservableObject {
                 )
             }
             if Task.isCancelled { return .none }
-            applyImmediatePlaybackState(to: player)
-            return bounds
+            return finish(bounds)
         }
 
         // Non-cycle path with optional trim.
@@ -584,15 +1147,17 @@ final class WallpaperManager: ObservableObject {
                 ? AVPlayerLooper(player: player, templateItem: item,
                                  timeRange: CMTimeRange(start: startCMT, end: endCMT))
                 : AVPlayerLooper(player: player, templateItem: item)
-            if bounds.start > 0.005 {
+            if restartFromTrimStart, bounds.start > 0.005 {
                 _ = await player.seek(to: startCMT,
                                       toleranceBefore: .zero,
                                       toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600))
             }
         } else {
-            _ = await player.seek(to: startCMT,
-                                  toleranceBefore: .zero,
-                                  toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600))
+            if restartFromTrimStart {
+                _ = await player.seek(to: startCMT,
+                                      toleranceBefore: .zero,
+                                      toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600))
+            }
             let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
             let endSec   = bounds.end
             timeObserver = player.addPeriodicTimeObserver(
@@ -609,8 +1174,56 @@ final class WallpaperManager: ObservableObject {
         }
 
         if Task.isCancelled { return .none }
-        applyImmediatePlaybackState(to: player)
-        return bounds
+        return finish(bounds)
+    }
+
+    /// Loop/cycle the already-trimmed per-stop composition as a whole item.
+    private func setupLoopAndTrimOnComposition(item: AVPlayerItem,
+                                                player: AVQueuePlayer,
+                                                mode: PlaybackMode,
+                                                applyPlaybackState: Bool) async -> ClipBounds {
+        func finish(_ bounds: ClipBounds) -> ClipBounds {
+            if applyPlaybackState { applyImmediatePlaybackState(to: player) }
+            return bounds
+        }
+
+        guard let duration = try? await item.asset.load(.duration),
+              duration.isValid, !duration.isIndefinite,
+              duration.seconds > 0 else {
+            if Task.isCancelled { return .none }
+            return finish(.none)
+        }
+        if Task.isCancelled { return .none }
+
+        let bounds = ClipBounds(start: 0, end: duration.seconds)
+        let loop   = (mode == .loop)
+        let cycle  = (mode == .cycle)
+
+        if cycle {
+            return finish(bounds)
+        }
+
+        if loop {
+            player.actionAtItemEnd = .advance
+            looper = AVPlayerLooper(player: player, templateItem: item)
+        } else {
+            let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+            let endSec   = bounds.end
+            timeObserver = player.addPeriodicTimeObserver(
+                forInterval: interval, queue: .main
+            ) { [weak self] time in
+                guard time.seconds >= endSec - 0.12 else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.player?.pause()
+                    self.userPaused = true
+                    self.isPlaying  = false
+                }
+            }
+        }
+
+        if Task.isCancelled { return .none }
+        return finish(bounds)
     }
 
     // MARK: – Private: single boundary observer (loop + cycle)
@@ -751,6 +1364,8 @@ final class WallpaperManager: ObservableObject {
 
         setupTask?.cancel();    setupTask    = nil
         slowDownTask?.cancel(); slowDownTask = nil
+        cancelInFlightSpeedSwap()
+        outPlayer?.cancelPendingPrerolls()
         stopBoundaryObserver()
 
         if let obs = timeObserver {
@@ -759,13 +1374,17 @@ final class WallpaperManager: ObservableObject {
         }
         looper = nil
 
-        let (newPlayer, item, asset) = makePlayer(url: url)
+        let built = await makePlayer(url: url)
+        let newPlayer = built.player
+        let item = built.item
+        let asset = built.asset
         guard isTransitionCurrent(generation) else {
             newPlayer.pause()
             newPlayer.replaceCurrentItem(with: nil)
             return
         }
 
+        adoptPrepared(built)
         player = newPlayer
         // Identity (cycle advance) is applied only after setup still owns the gate,
         // so stop/delete cannot be undone by a stale crossfade writing currentVideo.
@@ -1017,7 +1636,7 @@ final class WallpaperManager: ObservableObject {
             userPaused: userPaused,
             autoPauseReasons: autoPauseReasons
         ) {
-            player.play()
+            applyChosenRate(to: player)
             isPlaying = true
         }
     }
@@ -1067,6 +1686,12 @@ final class WallpaperManager: ObservableObject {
 
     /// Whether an AVQueuePlayer is currently owned by the manager.
     var debugHasActivePlayer: Bool { player != nil }
+
+    /// In-flight dual-player speed swap (3×…10× composition rebuild).
+    var debugRateSwapInFlight: Bool { rateSwapTask != nil }
+
+    /// Display-rate speedup baked into the current item (1 if native).
+    var debugCompositionSpeedup: Double { activeCompositionSpeedup }
 
     /// Whether a user or auto crossfade currently owns the transition gate.
     var debugTransitionInProgress: Bool { transitionInProgress }

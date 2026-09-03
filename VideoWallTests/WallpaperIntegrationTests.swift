@@ -158,6 +158,48 @@ final class WallpaperIntegrationTests: XCTestCase {
         XCTAssertFalse(wallpaper.isPlaying)
     }
 
+    func testSetPlaybackRateToCompositionStopsDoesNotCrash() async throws {
+        let previousBattery = settings.pauseOnBattery
+        let previousRecording = settings.pauseOnScreenRecording
+        let previousRate = settings.playbackRate
+        settings.pauseOnBattery = false
+        settings.pauseOnScreenRecording = false
+        settings.playbackRate = 1
+        defer {
+            settings.pauseOnBattery = previousBattery
+            settings.pauseOnScreenRecording = previousRecording
+            settings.playbackRate = previousRate
+        }
+
+        let video = try await importSample(named: "clip_a.mp4")
+        wallpaper.play(video: video)
+        try await waitUntil("player after play") { wallpaper.debugHasActivePlayer }
+        try await waitUntil("playback started") { wallpaper.isPlaying }
+
+        // 1× → 3× rebuilds a scaled composition on a hidden player parked
+        // under the live layer, then hard-cuts (must not crash or hang).
+        wallpaper.setPlaybackRate(3)
+        try await waitUntil("3× swap finished", timeout: 8) { !wallpaper.debugRateSwapInFlight }
+        XCTAssertEqual(settings.playbackRate, 3)
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+        XCTAssertGreaterThan(
+            wallpaper.debugCompositionSpeedup, 1.01,
+            "3× must rebuild a scaled composition so preroll runs on the hidden player"
+        )
+
+        wallpaper.setPlaybackRate(10)
+        try await waitUntil("10× swap finished", timeout: 8) { !wallpaper.debugRateSwapInFlight }
+        XCTAssertEqual(settings.playbackRate, 10)
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+
+        wallpaper.setPlaybackRate(1)
+        try await waitUntil("1× swap finished", timeout: 8) { !wallpaper.debugRateSwapInFlight }
+        XCTAssertEqual(settings.playbackRate, 1)
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+        XCTAssertLessThan(wallpaper.debugCompositionSpeedup, 1.01,
+                          "native 1× item must not keep a scaled composition")
+    }
+
     func testRapidPlaySwitchThenStop() async throws {
         let a = try await importSample(named: "clip_a.mp4")
         let bURL = tempRoot.appendingPathComponent("clip_b.mp4")
@@ -177,6 +219,19 @@ final class WallpaperIntegrationTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    private func waitUntil(
+        _ label: String,
+        timeout: TimeInterval = 5,
+        _ predicate: () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTFail("timed out waiting for \(label)")
+    }
 
     private func importSample(named: String) async throws -> VideoItem {
         // sampleVideoURL is always clip_a.mp4 content; rename for unique dest when needed

@@ -4,22 +4,20 @@ import CoreGraphics
 
 // MARK: - SnapshotMirror
 //
-// AVPlayerLayer content is invisible to Mission Control / Exposé snapshots, so
-// during Mission Control the translucent menu bar would show the real desktop
-// wallpaper instead of the video. This mirrors the active player's frames at a
-// low rate into a plain CGImage callback (which the caller pushes into a
-// captured CALayer). Frames are downscaled before rasterizing — the snapshot is
-// only ever shown small and blurred, so full resolution would be wasted GPU.
+// AVPlayerLayer is invisible to Mission Control. We mirror a downscaled frame
+// into a CALayer. The 32BGRA tap MUST NOT stay on the item while player.rate
+// changes — that floods FigFilePlayer -12860 and hitches 4K HEVC.
 
 @MainActor
 final class SnapshotMirror {
 
-    /// Called at the polling rate with a fresh, downscaled frame.
     var onFrame: ((CGImage) -> Void)?
 
     private var videoOutput: AVPlayerItemVideoOutput?
     private var player:      AVQueuePlayer?
+    private var item:        AVPlayerItem?
     private var timer:       Timer?
+    private var copyEnabled = true
 
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private let maxDimension: CGFloat
@@ -30,42 +28,69 @@ final class SnapshotMirror {
         self.interval     = interval
     }
 
-    /// Begins mirroring `player`. Safe to call repeatedly — each call retargets
-    /// the mirror at the newly supplied player/item.
     func attach(to item: AVPlayerItem, player: AVQueuePlayer) {
+        detachOutput()
+        self.item = item
+        self.player = player
+        if copyEnabled {
+            addOutput(to: item)
+            startTimer()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        detachOutput()
+        player = nil
+        item = nil
+    }
+
+    func pauseCapture() {
+        copyEnabled = false
+        timer?.invalidate()
+        timer = nil
+        detachOutput()
+    }
+
+    func resumeCapture() {
+        copyEnabled = true
+        guard timer == nil, let item else { return }
+        if videoOutput == nil { addOutput(to: item) }
+        startTimer()
+    }
+
+    private func addOutput(to item: AVPlayerItem) {
         let attrs: [String: any Sendable] = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
         ]
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
         item.add(output)
         videoOutput = output
-        self.player = player
-        startTimer()
     }
 
-    func stop() {
-        timer?.invalidate()
-        timer       = nil
+    private func detachOutput() {
+        if let output = videoOutput {
+            item?.remove(output)
+        }
         videoOutput = nil
-        player      = nil
     }
 
     private func startTimer() {
-        guard timer == nil else { return }
+        guard timer == nil, copyEnabled else { return }
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.capture() }
         }
     }
 
     private func capture() {
-        guard let output = videoOutput, let player else { return }
+        guard copyEnabled, let output = videoOutput, let player else { return }
         let t = player.currentTime()
         guard t.isValid,
               output.hasNewPixelBuffer(forItemTime: t),
               let pixelBuffer = output.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil)
         else { return }
 
-        // Downscale before rasterizing — the snapshot is only shown small/blurred.
         let ciImage = CIImage(cvImageBuffer: pixelBuffer)
         let extent  = ciImage.extent
         let maxSide = max(extent.width, extent.height)
