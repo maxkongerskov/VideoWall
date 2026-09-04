@@ -222,18 +222,33 @@ final class WallpaperWindow {
     // MARK: – Crossfade transition
 
     /// Crossfade from the current video to `newPlayer` over `duration` seconds.
+    /// Immediate path (no preroll wait). Prefer `attachIncomingUnderActive`
+    /// then `beginPreparedCrossfade` so the incoming layer can decode first.
     func crossfade(to newPlayer: AVQueuePlayer, duration: TimeInterval, peakBlur: CGFloat = 16) {
-        guard let hostLayer = window.contentView?.layer else { return }
+        attachIncomingUnderActive(newPlayer)
+        beginPreparedCrossfade(duration: duration, peakBlur: peakBlur)
+    }
+
+    /// Reveals the parked incoming player with the cycle/loop fade. Incoming
+    /// must already be in the tree (`attachIncomingUnderActive`).
+    func beginPreparedCrossfade(duration: TimeInterval, peakBlur: CGFloat = 16) {
+        guard let hostLayer = window.contentView?.layer,
+              let inContainer = pendingContainer,
+              let inPlayerLayer = pendingPlayerLayer,
+              inContainer !== activeContainer
+        else { return }
 
         let reduceMotion = self.isReduceMotionEnabled
         let useBlur      = !reduceMotion && peakBlur > 0.5
-        let bounds       = hostLayer.bounds
         let outContainer = activeContainer
-
         outgoingContainer = outContainer
 
-        let (inContainer, inPlayerLayer) = makeLayerPair(player: newPlayer, bounds: bounds)
-        pendingContainer = inContainer
+        // Hide the parked layer before lifting it above the live video so the
+        // reorder cannot flash an unready frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        inContainer.opacity = 0
+        CATransaction.commit()
 
         let now = CACurrentMediaTime()
 
@@ -251,8 +266,6 @@ final class WallpaperWindow {
                                   duration: duration * 0.5,
                                   beginTime: now)
                 out.add(bo, forKey: "blurOut")
-            } else {
-                hostLayer.addSublayer(inContainer)
             }
 
             let midTime = now + duration * 0.5
@@ -266,28 +279,24 @@ final class WallpaperWindow {
             inContainer.add(bi, forKey: "blurIn")
 
         } else {
-            // Simplified transition for Reduce Motion or no-blur requests
             inContainer.opacity = 1.0
 
             if let out = outContainer {
                 hostLayer.insertSublayer(inContainer, above: out)
-                let fi = opacityAnim(from: 0, to: 1, duration: reduceMotion ? duration * 0.5 : duration,
-                                     timing: .easeInEaseOut, beginTime: now)
-                inContainer.add(fi, forKey: "fadeIn")
-            } else {
-                hostLayer.addSublayer(inContainer)
             }
+            let fi = opacityAnim(from: 0, to: 1, duration: reduceMotion ? duration * 0.5 : duration,
+                                 timing: .easeInEaseOut, beginTime: now)
+            inContainer.add(fi, forKey: "fadeIn")
         }
 
         CATransaction.commit()
 
-        // ── Cleanup after animation using Swift Concurrency ───────────────────
         Task { [weak self, weak outContainer, weak inContainer] in
             try? await Task.sleep(nanoseconds: UInt64((duration + 0.15) * 1_000_000_000))
-            
+
             outContainer?.removeFromSuperlayer()
             if useBlur { inContainer?.filters = nil }
-            
+
             guard let self else { return }
             if self.pendingContainer === inContainer {
                 self.pendingContainer = nil

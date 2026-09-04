@@ -172,6 +172,25 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         XCTAssertTrue(wallpaper.debugAutoPauseReasons.isEmpty)
     }
 
+    func testCrossfadeCompletesAndKeepsPlayback() async throws {
+        runSetup()
+        let a = try await importClip(named: "a.mp4")
+        let b = try await importClip(named: "b.mp4")
+
+        wallpaper.play(video: a)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+
+        wallpaper.play(video: b)
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline, wallpaper.debugTransitionInProgress {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertFalse(wallpaper.debugTransitionInProgress)
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+        XCTAssertEqual(wallpaper.currentVideo?.id, b.id)
+    }
+
     func testDeleteCurrentDuringCrossfadeClearsNowPlaying() async throws {
         runSetup()
         let a = try await importClip(named: "a.mp4")

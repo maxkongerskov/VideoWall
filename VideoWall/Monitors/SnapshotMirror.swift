@@ -29,12 +29,27 @@ final class SnapshotMirror {
     }
 
     func attach(to item: AVPlayerItem, player: AVQueuePlayer) {
-        detachOutput()
+        if self.item === item, self.player === player {
+            if copyEnabled, videoOutput == nil {
+                addOutput(to: item)
+                startTimer()
+            }
+            return
+        }
+        // Retarget first, then drop the previous tap. Yanking 32BGRA off a
+        // still-playing item hitches 4K HEVC; callers should pause the old
+        // player before attaching a different item.
+        let previousItem = self.item
+        let previousOutput = videoOutput
+        videoOutput = nil
         self.item = item
         self.player = player
         if copyEnabled {
             addOutput(to: item)
             startTimer()
+        }
+        if let previousOutput {
+            previousItem?.remove(previousOutput)
         }
     }
 

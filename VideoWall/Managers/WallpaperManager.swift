@@ -509,9 +509,13 @@ final class WallpaperManager: ObservableObject {
         snapshotResumeTask?.cancel()
         snapshotResumeTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.snapshotMirror.resumeCapture()
-            self?.snapshotResumeTask = nil
+            guard !Task.isCancelled, let self else { return }
+            defer { self.snapshotResumeTask = nil }
+            guard self.shouldResumeSnapshot,
+                  let player = self.player,
+                  let item = player.currentItem else { return }
+            self.snapshotMirror.attach(to: item, player: player)
+            self.snapshotMirror.resumeCapture()
         }
     }
 
@@ -588,9 +592,9 @@ final class WallpaperManager: ObservableObject {
         queuePlayer.automaticallyWaitsToMinimizeStalling = false
         // Wallpaper must not block idle sleep / screensaver.
         queuePlayer.preventsDisplaySleepDuringVideoPlayback = false
-        snapshotMirror.attach(to: item, player: queuePlayer)
-        // Always pause the 32BGRA tap until the player is on-screen at 1x native.
-        snapshotMirror.pauseCapture()
+        // Do not attach SnapshotMirror here. Adding or removing the 32BGRA tap
+        // on a still-playing item hitches 4K HEVC. Owners attach after the
+        // player is on-screen (`scheduleSnapshotResume` / `restoreSnapshotMirror`).
         return PreparedPlayer(
             player: queuePlayer,
             item: item,
@@ -767,13 +771,27 @@ final class WallpaperManager: ObservableObject {
         while ContinuousClock.now < deadline {
             if Task.isCancelled { return false }
             switch player.status {
-            case .readyToPlay: return true
+            case .readyToPlay:
+                if let item = player.currentItem {
+                    switch item.status {
+                    case .readyToPlay: return true
+                    case .failed: return false
+                    default: break
+                    }
+                } else {
+                    return true
+                }
             case .failed: return false
             default:
-                try? await Task.sleep(for: .milliseconds(16))
+                break
             }
+            try? await Task.sleep(for: .milliseconds(16))
         }
-        return player.status == .readyToPlay
+        guard player.status == .readyToPlay else { return false }
+        if let item = player.currentItem {
+            return item.status == .readyToPlay
+        }
+        return true
     }
 
     private func waitUntilIncomingReadyForDisplay(timeout: Duration) async -> Bool {
@@ -791,8 +809,11 @@ final class WallpaperManager: ObservableObject {
 
     /// Preroll into the incoming wallpaper layer. Skip when not ready rather
     /// than throwing. Completion / cancelPendingPrerolls can fire twice.
+    /// Times out so a stuck preroll cannot freeze a crossfade or speed swap.
     private func prerollIfReady(player: AVQueuePlayer, at rate: Float) async -> Bool {
-        guard !Task.isCancelled, player.status == .readyToPlay else { return false }
+        guard !Task.isCancelled, player.status == .readyToPlay,
+              player.currentItem?.status != .failed else { return false }
+        if let item = player.currentItem, item.status != .readyToPlay { return false }
         return await withCheckedContinuation { continuation in
             let once = OnceFlag()
             guard player.status == .readyToPlay else {
@@ -802,6 +823,12 @@ final class WallpaperManager: ObservableObject {
             player.preroll(atRate: rate) { success in
                 guard once.take() else { return }
                 continuation.resume(returning: success)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard once.take() else { return }
+                player.cancelPendingPrerolls()
+                continuation.resume(returning: false)
             }
         }
     }
@@ -1238,7 +1265,10 @@ final class WallpaperManager: ObservableObject {
         guard mode == .loop || mode == .cycle else { return }
 
         let crossfadeDur = min(3.0, bounds.length * 0.9)
-        let triggerSec   = max(bounds.start, bounds.end - crossfadeDur)
+        let fadeStart    = max(bounds.start, bounds.end - crossfadeDur)
+        // Long clips start preparing ~0.7s early so preroll does not eat the fade.
+        let prepareLead  = (fadeStart - bounds.start) > 1.2 ? 0.7 : 0
+        let triggerSec   = max(bounds.start, fadeStart - prepareLead)
         let interval     = CMTime(seconds: 0.25, preferredTimescale: 600)
 
         boundaryObserverPlayer = targetPlayer
@@ -1365,7 +1395,6 @@ final class WallpaperManager: ObservableObject {
         setupTask?.cancel();    setupTask    = nil
         slowDownTask?.cancel(); slowDownTask = nil
         cancelInFlightSpeedSwap()
-        outPlayer?.cancelPendingPrerolls()
         stopBoundaryObserver()
 
         if let obs = timeObserver {
@@ -1389,7 +1418,8 @@ final class WallpaperManager: ObservableObject {
         // Identity (cycle advance) is applied only after setup still owns the gate,
         // so stop/delete cannot be undone by a stale crossfade writing currentVideo.
 
-        // Seek / resolution / trim setup before showing frames.
+        // Seek / resolution / trim setup before showing frames. Do not start
+        // playback yet — an unlayered player then a cold AVPlayerLayer hitch.
         let mode = settings.playbackMode
         let bounds = await setupLoopAndTrim(
             item:      item,
@@ -1397,7 +1427,8 @@ final class WallpaperManager: ObservableObject {
             asset:     asset,
             trimStart: settings.trimStart,
             trimEnd:   settings.trimEnd,
-            mode:      mode
+            mode:      mode,
+            applyPlaybackState: false
         )
 
         guard isTransitionCurrent(generation) else {
@@ -1410,16 +1441,44 @@ final class WallpaperManager: ObservableObject {
             settings.selectedVideoID = video.id
         }
 
-        // Pre-roll a brief decode window, then crossfade windows.
-        try? await Task.sleep(for: .milliseconds(180))
-        guard isTransitionCurrent(generation) else {
-            abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
-            return
-        }
+        // Park incoming under the live layer and preroll into that real layer
+        // before revealing. 1.2.0 showed an unready AVPlayerLayer after a blind
+        // 180ms sleep, and yanked the snapshot tap off the outgoing clip —
+        // both hitch 4K HEVC at every fade.
+        let shouldPlayNow = PlaybackPolicy.shouldPlay(
+            hasCurrentVideo: currentVideo != nil,
+            userPaused: userPaused,
+            autoPauseReasons: autoPauseReasons
+        )
+        let prerollRate: Float = usesCompositionItem ? 1.0 : Float(min(max(displayRate, 1), 2))
 
-        let peakBlur = CGFloat(settings.cycleBlurRadius)
-        wallpaperWindows.forEach {
-            $0.crossfade(to: newPlayer, duration: crossfadeDuration, peakBlur: peakBlur)
+        if wallpaperWindows.isEmpty {
+            applyImmediatePlaybackState(to: newPlayer)
+        } else {
+            newPlayer.volume = 0
+            wallpaperWindows.forEach { $0.attachIncomingUnderActive(newPlayer) }
+            if shouldPlayNow {
+                _ = await waitUntilReadyToPlay(player: newPlayer, timeout: .milliseconds(400))
+                guard isTransitionCurrent(generation) else {
+                    abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
+                    return
+                }
+                // Play into the parked layer (do not preroll — that throws
+                // NSInvalidArgumentException on short/unready items and crashed
+                // 1.2.0-era tests). Then wait for a decoded frame before fading.
+                newPlayer.playImmediately(atRate: prerollRate)
+                isPlaying = true
+                _ = await waitUntilIncomingReadyForDisplay(timeout: .milliseconds(400))
+                guard isTransitionCurrent(generation) else {
+                    abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
+                    return
+                }
+            }
+            newPlayer.volume = settings.isMuted ? 0 : settings.volume
+            let peakBlur = CGFloat(settings.cycleBlurRadius)
+            wallpaperWindows.forEach {
+                $0.beginPreparedCrossfade(duration: crossfadeDuration, peakBlur: peakBlur)
+            }
         }
 
         try? await Task.sleep(for: .seconds(crossfadeDuration + 0.15))
@@ -1434,6 +1493,7 @@ final class WallpaperManager: ObservableObject {
         _ = outLooper
 
         // Re-arm boundary observer for the new player; re-apply holds.
+        // Do not assign player.rate again — that hitches 4K HEVC at fade end.
         reevaluateAutoPauseHolds()
         if !PlaybackPolicy.shouldPlay(
             hasCurrentVideo: currentVideo != nil,
@@ -1442,6 +1502,16 @@ final class WallpaperManager: ObservableObject {
         ) {
             newPlayer.pause()
             isPlaying = false
+            snapshotResumeTask?.cancel()
+            snapshotMirror.pauseCapture()
+        } else {
+            isPlaying = true
+            if shouldResumeSnapshot {
+                scheduleSnapshotResume()
+            } else {
+                snapshotResumeTask?.cancel()
+                snapshotMirror.pauseCapture()
+            }
         }
 
         guard isTransitionCurrent(generation) else { return }
