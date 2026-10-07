@@ -171,6 +171,20 @@ struct ControlsView: View {
             )
             .padding(.horizontal, 14)
 
+            if wallpaper.isPlaybackRateCapped {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                    Text("This clip is too short for \(Int(settings.playbackRate))× — playing at 2×")
+                        .font(.system(size: 10))
+                }
+                .foregroundColor(.yellow.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .transition(.opacity)
+            }
+
             sectionLabel("Clip trim")
 
             VStack(alignment: .leading, spacing: 8) {

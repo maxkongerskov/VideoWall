@@ -18,9 +18,11 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
     private var library: VideoLibraryManager!
     private var wallpaper: WallpaperManager!
     private var didSetup = false
+    private var defaultsSnapshot = UserDefaultsSnapshot()
 
     override func setUp() async throws {
         try await super.setUp()
+        defaultsSnapshot.capture()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("VideoWallDeep-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -33,6 +35,7 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         settings.pauseOnScreenRecording = false
         settings.playbackMode = .loop
         settings.resolution = .original
+        settings.playbackRate = 1
 
         library = VideoLibraryManager(applicationSupportRoot: tempRoot)
         wallpaper = WallpaperManager(settings: settings, library: library)
@@ -50,6 +53,7 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         }
         library.stopWatching()
         try? FileManager.default.removeItem(at: tempRoot)
+        defaultsSnapshot.restore()
         try await super.tearDown()
     }
 
@@ -174,8 +178,10 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
 
     func testCrossfadeCompletesAndKeepsPlayback() async throws {
         runSetup()
-        let a = try await importClip(named: "a.mp4")
-        let b = try await importClip(named: "b.mp4")
+        // User switch fade is 3s. A 1.5s loop clip arms the next auto-fade
+        // as soon as that 3s fade ends, so the gate never looks idle.
+        let a = try await importClip(named: "xfade-a.mp4", durationSeconds: 8)
+        let b = try await importClip(named: "xfade-b.mp4", durationSeconds: 8)
 
         wallpaper.play(video: a)
         try await Task.sleep(for: .milliseconds(400))
@@ -240,6 +246,7 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         XCTAssertEqual(settings.playbackRate, 3)
         XCTAssertTrue(wallpaper.debugHasActivePlayer)
         XCTAssertGreaterThan(wallpaper.debugCompositionSpeedup, 1.01)
+        XCTAssertEqual(wallpaper.debugPlayerRate, 1, accuracy: 0.15)
         XCTAssertEqual(wallpaper.debugWindowCount, NSScreen.screens.count,
                        "speed swap must not tear down wallpaper windows")
 
@@ -248,8 +255,10 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         while Date() < nativeDeadline, wallpaper.debugRateSwapInFlight {
             try await Task.sleep(for: .milliseconds(50))
         }
+        XCTAssertFalse(wallpaper.debugRateSwapInFlight)
         XCTAssertEqual(settings.playbackRate, 1)
         XCTAssertLessThan(wallpaper.debugCompositionSpeedup, 1.01)
+        XCTAssertEqual(wallpaper.debugPlayerRate, 1, accuracy: 0.15)
     }
 
     func testResolutionChangeReplaysCurrent() async throws {
@@ -261,6 +270,30 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(500))
         XCTAssertEqual(wallpaper.currentVideo?.id, video.id)
         XCTAssertEqual(settings.resolution, .hd720)
+    }
+
+    func testPlaybackUsesVideoToolboxDecoderCapNotVideoComposition() async throws {
+        runSetup()
+        settings.resolution = .hd720
+        settings.playbackRate = 1
+        let video = try await importClip(named: "gpu.mp4")
+        wallpaper.play(video: video)
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, !wallpaper.debugHasActivePlayer {
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertTrue(wallpaper.debugHasActivePlayer)
+
+        let expected = AppleGPUPlayback.decoderCap(for: .hd720)
+        XCTAssertEqual(wallpaper.debugPreferredMaximumResolution, expected)
+        XCTAssertFalse(wallpaper.debugUsesVideoComposition,
+                       "AVVideoComposition would drop VideoToolbox overlay")
+
+        for win in wallpaper.debugWallpaperWindows {
+            XCTAssertTrue(win.window.isOpaque)
+            XCTAssertEqual(win.window.contentView?.layer?.isOpaque, true)
+        }
     }
 
     // MARK: Monitors smoke (shipped types)
@@ -320,12 +353,65 @@ final class DeepPlaybackIntegrationTests: XCTestCase {
         win.hide()
     }
 
+    func testWallpaperWindowFillChromeWhilePlayerAttached() {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            XCTFail("no screen")
+            return
+        }
+        let win = WallpaperWindow(screen: screen)
+        XCTAssertFalse(win.window.isOpaque)
+        XCTAssertEqual(win.window.appearance?.name, .darkAqua)
+        XCTAssertTrue(win.window.contentView is WallpaperHostView)
+        XCTAssertTrue(win.window is DesktopFillWindow)
+        XCTAssertEqual(win.window.contentView?.safeAreaInsets.top, 0)
+
+        let player = AVQueuePlayer()
+        win.setPlayer(player)
+        XCTAssertTrue(win.window.isOpaque)
+        XCTAssertEqual(win.window.backgroundColor, .black)
+        XCTAssertEqual(win.window.contentView?.layer?.isOpaque, true)
+
+        win.clearPlayer()
+        XCTAssertFalse(win.window.isOpaque)
+        XCTAssertEqual(win.window.backgroundColor, .clear)
+        XCTAssertEqual(win.window.contentView?.layer?.isOpaque, false)
+    }
+
+    func testDesktopFillWindowDoesNotConstrainUnderMenuBar() {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            XCTFail("no screen")
+            return
+        }
+        let win = DesktopFillWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: true
+        )
+        win.isReleasedWhenClosed = false
+        let proposed = screen.frame
+        let constrained = win.constrainFrameRect(proposed, to: screen)
+        XCTAssertEqual(constrained, proposed)
+        // Default NSWindow would typically inset by the menu-bar/notch gap.
+        XCTAssertEqual(constrained.maxY, screen.frame.maxY, accuracy: 0.5)
+    }
+
+    func testOptsOutOfNotchDisplayCompatibilityMode() {
+        let value = Bundle(for: WallpaperWindow.self)
+            .object(forInfoDictionaryKey: "NSPrefersDisplaySafeAreaCompatibilityMode") as? Bool
+        XCTAssertEqual(value, false)
+    }
+
     // MARK: Helpers
 
-    private func importClip(named: String) async throws -> VideoItem {
+    private func importClip(named: String, durationSeconds: Double = 1.5) async throws -> VideoItem {
         let source = tempRoot.appendingPathComponent("src-\(named)")
         if !FileManager.default.fileExists(atPath: source.path) {
-            try FileManager.default.copyItem(at: sampleURL, to: source)
+            if abs(durationSeconds - 1.5) < 0.01 {
+                try FileManager.default.copyItem(at: sampleURL, to: source)
+            } else {
+                try WallpaperIntegrationTests.renderTinyMP4(to: source, durationSeconds: durationSeconds)
+            }
         }
         let before = Set(library.videos.map(\.id))
         library.importVideo(from: source)

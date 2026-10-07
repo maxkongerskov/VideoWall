@@ -5,8 +5,8 @@ import CoreGraphics
 // MARK: - SnapshotMirror
 //
 // AVPlayerLayer is invisible to Mission Control. We mirror a downscaled frame
-// into a CALayer. The 32BGRA tap MUST NOT stay on the item while player.rate
-// changes — that floods FigFilePlayer -12860 and hitches 4K HEVC.
+// into a CALayer. The pixel-buffer tap MUST NOT stay on the item while
+// player.rate changes — that floods FigFilePlayer -12860 and hitches 4K HEVC.
 
 @MainActor
 final class SnapshotMirror {
@@ -19,7 +19,16 @@ final class SnapshotMirror {
     private var timer:       Timer?
     private var copyEnabled = true
 
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    private var _ciContext: CIContext?
+    /// Metal CIContext for downsampling frames — created lazily on the first
+    /// attach, not at launch, so an app that never resumes snapshots never
+    /// pays for one.
+    private var ciContext: CIContext {
+        if let _ciContext { return _ciContext }
+        let context = AppleGPUPlayback.makeSnapshotCIContext()
+        _ciContext = context
+        return context
+    }
     private let maxDimension: CGFloat
     private let interval: TimeInterval
 
@@ -36,9 +45,9 @@ final class SnapshotMirror {
             }
             return
         }
-        // Retarget first, then drop the previous tap. Yanking 32BGRA off a
-        // still-playing item hitches 4K HEVC; callers should pause the old
-        // player before attaching a different item.
+        // Retarget first, then drop the previous tap. Yanking a pixel-buffer
+        // tap off a still-playing item hitches 4K HEVC; callers should pause
+        // the old player before attaching a different item.
         let previousItem = self.item
         let previousOutput = videoOutput
         videoOutput = nil
@@ -76,10 +85,9 @@ final class SnapshotMirror {
     }
 
     private func addOutput(to item: AVPlayerItem) {
-        let attrs: [String: any Sendable] = [
-            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-        ]
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
+        let output = AVPlayerItemVideoOutput(
+            pixelBufferAttributes: AppleGPUPlayback.snapshotPixelBufferAttributes
+        )
         item.add(output)
         videoOutput = output
     }

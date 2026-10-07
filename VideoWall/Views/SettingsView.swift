@@ -184,6 +184,13 @@ struct GeneralSettingsView: View {
                     .frame(width: 110)
                 }
 
+                Text("Caps VideoToolbox hardware decode (Metal). Original still fits your display.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.45))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 4)
+
                 divider()
                 settingsTitle("Debug")
 

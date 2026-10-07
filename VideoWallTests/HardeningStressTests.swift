@@ -18,9 +18,11 @@ final class HardeningStressTests: XCTestCase {
     private var library: VideoLibraryManager!
     private var wallpaper: WallpaperManager!
     private var didSetup = false
+    private var defaultsSnapshot = UserDefaultsSnapshot()
 
     override func setUp() async throws {
         try await super.setUp()
+        defaultsSnapshot.capture()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("VideoWallHard-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -32,6 +34,7 @@ final class HardeningStressTests: XCTestCase {
         settings.pauseOnScreenRecording = false
         settings.playbackMode = .loop
         settings.resolution = .original
+        settings.playbackRate = 1
 
         library = VideoLibraryManager(applicationSupportRoot: tempRoot)
         wallpaper = WallpaperManager(settings: settings, library: library)
@@ -45,6 +48,7 @@ final class HardeningStressTests: XCTestCase {
         else { wallpaper.stop() }
         library.stopWatching()
         try? FileManager.default.removeItem(at: tempRoot)
+        defaultsSnapshot.restore()
         try await super.tearDown()
     }
 
@@ -67,7 +71,14 @@ final class HardeningStressTests: XCTestCase {
             XCTAssertTrue(win.window.ignoresMouseEvents,
                           "must not steal clicks from icons/desktop")
             XCTAssertFalse(win.window.isOpaque)
+            XCTAssertEqual(win.window.appearance?.name, .darkAqua)
+            XCTAssertTrue(win.window.contentView is WallpaperHostView)
+            XCTAssertTrue(win.window is DesktopFillWindow)
             assertFramesNearlyEqual(win.window.frame, screen.frame)
+            assertFramesNearlyEqual(
+                win.window.constrainFrameRect(screen.frame, to: screen),
+                screen.frame
+            )
             XCTAssertTrue(win.window.collectionBehavior.contains(.stationary))
             XCTAssertTrue(win.window.collectionBehavior.contains(.ignoresCycle))
             XCTAssertTrue(win.window.canBecomeVisibleWithoutLogin,
@@ -87,8 +98,23 @@ final class HardeningStressTests: XCTestCase {
         for win in wallpaper.debugWallpaperWindows {
             XCTAssertEqual(win.window.level.rawValue, desktopLevel)
             XCTAssertTrue(win.window.ignoresMouseEvents)
+            XCTAssertTrue(win.window.isOpaque,
+                          "playing wallpaper must be opaque so menu-bar glass does not frost white")
+            XCTAssertEqual(win.window.backgroundColor, .black)
         }
         XCTAssertTrue(wallpaper.debugHasActivePlayer)
+    }
+
+    func testStopRestoresTransparentWallpaperChrome() async throws {
+        runSetup()
+        let video = try await importClip("idle.mp4")
+        wallpaper.play(video: video)
+        try await Task.sleep(for: .milliseconds(500))
+        wallpaper.stop()
+        for win in wallpaper.debugWallpaperWindows {
+            XCTAssertFalse(win.window.isOpaque)
+            XCTAssertEqual(win.window.backgroundColor, .clear)
+        }
     }
 
     func testScreensaverRaisesWindowAboveDesktopLevel() async throws {

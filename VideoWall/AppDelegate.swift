@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover:        NSPopover?
     private var splashWindow:   NSWindow?
     private var settingsWindow: NSWindow?
-    private var monitor:        Any?   // global event monitor for click-outside
+    private var settingsCloseObserver: NSObjectProtocol?
 
     // MARK: applicationDidFinishLaunching
 
@@ -65,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let settingsCloseObserver {
+            NotificationCenter.default.removeObserver(settingsCloseObserver)
+        }
         wallpaperManager.teardown()
         libraryManager.stopWatching()
     }
@@ -139,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Switch back to accessory when the settings window closes.
             // queue: .main → assumeIsolated is safe; avoids accessing @MainActor
             // vars (NSApp, settingsWindow) from a @Sendable closure.
-            NotificationCenter.default.addObserver(
+            settingsCloseObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
                 object:  win,
                 queue:   .main

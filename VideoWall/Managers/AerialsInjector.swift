@@ -93,9 +93,11 @@ final class AerialsInjector: Sendable {
 
         persistAssetID(assetID)
 
-        if touchesSystem && videoChanged && Self.isForeignWallpaperLocation(storeURL) {
-            restartWallpaperAgent()
-        }
+        // No WallpaperAgent bounce, ever: VideoWall no longer writes into
+        // Apple's wallpaper store, and `killall WallpaperAgent` from a
+        // third-party app is an App Review red flag. `install` itself has no
+        // production caller — it is kept to exercise uninstall/retirement in
+        // tests (production only ever calls `uninstallIfPreviouslyInstalled`).
         return true
     }
 
@@ -414,17 +416,5 @@ final class AerialsInjector: Sendable {
 
     private func persistAssetID(_ id: String) {
         try? id.write(to: assetIDURL, atomically: true, encoding: .utf8)
-    }
-
-    // MARK: WallpaperAgent
-
-    private func restartWallpaperAgent() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        task.arguments = ["WallpaperAgent"]
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        try? task.run()
-        task.waitUntilExit()
     }
 }

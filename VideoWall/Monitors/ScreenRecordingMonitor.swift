@@ -74,7 +74,19 @@ final class ScreenRecordingMonitor {
         guard let windows = CGWindowListCopyWindowInfo(opts, kCGNullWindowID)
                 as? [[String: Any]]
         else { return false }
-        return ScreenRecordingDetection.isRecordingIndicatorPresent(in: windows)
+        return ScreenRecordingDetection.isRecordingIndicatorPresent(
+            in: windows,
+            controlCenterPIDs: Self.controlCenterProcessIDs()
+        )
+    }
+
+    /// The ControlCenter process identified by bundle ID — its owner/window
+    /// names are localized, so matching the literal string "Control Center"
+    /// breaks on non-English systems.
+    static func controlCenterProcessIDs() -> Set<Int32> {
+        Set(NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == "com.apple.controlcenter" }
+            .map(\.processIdentifier))
     }
 }
 
@@ -84,12 +96,23 @@ enum ScreenRecordingDetection: Sendable {
     /// True when the global window list contains the system recording indicator.
     /// The indicator lives in the "Control Center" process (QuickTime, CleanShot,
     /// Loom, OBS, Zoom screen-share, etc.).
-    static func isRecordingIndicatorPresent(in windows: [[String: Any]]) -> Bool {
+    ///
+    /// A window is the indicator when it is owned by the ControlCenter process
+    /// (matched by PID — locale-independent) *and* carries an indicator name.
+    /// `kCGWindowOwnerName` is localized ("Control Center" only on English
+    /// systems), which is why the literal-string check is only a fallback;
+    /// "StatusIndicator" is the window's internal name and is not localized.
+    static func isRecordingIndicatorPresent(
+        in windows: [[String: Any]],
+        controlCenterPIDs: Set<Int32> = []
+    ) -> Bool {
         windows.contains { window in
-            guard let owner = window[kCGWindowOwnerName as String] as? String,
-                  owner == "Control Center",
-                  let name = window[kCGWindowName as String] as? String
+            let pid   = (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? -1
+            let owner = window[kCGWindowOwnerName as String] as? String ?? ""
+            guard controlCenterPIDs.contains(pid) || owner == "Control Center"
             else { return false }
+
+            guard let name = window[kCGWindowName as String] as? String else { return false }
             return name == "StatusIndicator" ||
                    name.localizedCaseInsensitiveContains("screen recording")
         }

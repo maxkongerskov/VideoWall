@@ -64,6 +64,12 @@ final class WallpaperManager: ObservableObject {
     @Published var currentVideo: VideoItem?
     @Published var isPlaying:    Bool = false
 
+    /// True when the speed slider shows a ≥3× stop but playback is capped at
+    /// 2× because the scaled composition could not be built (trim too short,
+    /// unknown duration, or scaleTimeRange failure). Surfaced in the UI
+    /// instead of silently playing slower than the slider promises.
+    @Published private(set) var isPlaybackRateCapped = false
+
     // MARK: Dependencies (injected via init)
 
     let settings: AppSettings
@@ -89,7 +95,6 @@ final class WallpaperManager: ObservableObject {
 
     private var player:       AVQueuePlayer?
     private var looper:       AVPlayerLooper?
-    private var timeObserver: Any?          // trim end-enforcer (non-loop path)
     /// Native URL asset for the current clip; kept so a rate swap can rebuild a
     /// per-stop composition on a hidden player without tearing down the visible one.
     private var sourceAsset: AVURLAsset?
@@ -105,6 +110,10 @@ final class WallpaperManager: ObservableObject {
 
     private var boundaryObserver:       Any?
     private var boundaryObserverPlayer: AVQueuePlayer?
+    /// Last bounds/mode passed to `armBoundaryObserver`, so a cancelled or
+    /// failed speed swap can put the observer back on the player we kept.
+    private var lastBoundaryBounds: ClipBounds = .none
+    private var lastBoundaryMode: PlaybackMode = .loop
     private var transitionTask:         Task<Void, Never>?
     private var transitionInProgress:   Bool = false
     /// Bumped on each new transition so a cancelled prior task cannot clear the gate.
@@ -205,10 +214,10 @@ final class WallpaperManager: ObservableObject {
         }
 
         batteryMonitor.start()
-        recordingMonitor.start()
         surfaceMonitor.start()
-        // start() above runs an immediate evaluate(), so hasPermission is current.
-        needsScreenRecordingPermission = settings.pauseOnScreenRecording && !recordingMonitor.hasPermission
+        // Only poll for recording while the feature is enabled; the sink in
+        // bindSettings starts/stops the monitor with the toggle.
+        syncRecordingMonitor(enabled: settings.pauseOnScreenRecording)
     }
 
     /// Prompts for Screen Recording permission (needed for recording detection)
@@ -413,6 +422,8 @@ final class WallpaperManager: ObservableObject {
         PlaybackRateStops.clamped(settings.playbackRate)
     }
 
+    /// 3×…10× rebuild a `scaleTimeRange` item so the decoder is not asked for
+    /// 180–600 fps of 4K HEVC. 1×/2× stay on the native VideoToolbox overlay.
     private var wantsComposition: Bool { displayRate >= 3 }
 
     /// AVPlayer.rate for the *current item*: 1 or 2 on native; always 1.0 on a
@@ -422,14 +433,19 @@ final class WallpaperManager: ObservableObject {
         return Float(min(max(displayRate, 1), 2))
     }
 
-    /// SnapshotMirror BGRA tap is only safe on 1x native. Composition plays at
-    /// player.rate == 1.0 internally — that must NOT resume capture.
+    /// Snapshot tap is only safe on 1× native overlay playback. Speed
+    /// compositions and the 60 fps Metal cap both own the item's output.
     private var shouldResumeSnapshot: Bool {
-        abs(displayRate - 1) < 0.01 && !usesCompositionItem
+        abs(displayRate - 1) < 0.01
+            && !usesCompositionItem
+            && player?.currentItem?.videoComposition == nil
     }
 
     private func applyChosenRate(to player: AVQueuePlayer) {
         let rate = internalPlaybackRate
+        if let item = player.currentItem {
+            AppleGPUPlayback.syncPacingFrameDuration(on: item, rate: Double(rate))
+        }
         player.rate = rate
         if shouldResumeSnapshot {
             scheduleSnapshotResume()
@@ -473,9 +489,14 @@ final class WallpaperManager: ObservableObject {
         settings.playbackRate = rate
         guard let player else { return }
 
-        // 1↔2 native: never pause+preroll; just set player.rate.
+        slowDownTask?.cancel()
+        slowDownTask = nil
+
+        // 1↔2 native: never pause+preroll; just set player.rate (and the
+        // 60 fps pacing clock on high-fps items).
         let needsNewItem = rate >= 3 || usesCompositionItem
         if !needsNewItem {
+            isPlaybackRateCapped = false
             guard isPlaying else { return }
             applyChosenRate(to: player)
             return
@@ -569,6 +590,7 @@ final class WallpaperManager: ObservableObject {
         sourceAsset = built.asset
         activeCompositionSpeedup = built.compositionSpeedup
         compositionSourceOrigin = built.compositionOrigin
+        isPlaybackRateCapped = displayRate >= 3 && built.compositionSpeedup <= 1.01
     }
 
     /// Builds a player for `url` in the *current* speed regime. 3x...10x starts
@@ -589,12 +611,22 @@ final class WallpaperManager: ObservableObject {
         let queuePlayer = AVQueuePlayer(playerItem: item)
         queuePlayer.volume          = settings.isMuted ? 0 : settings.volume
         queuePlayer.actionAtItemEnd = .none
-        queuePlayer.automaticallyWaitsToMinimizeStalling = false
-        // Wallpaper must not block idle sleep / screensaver.
-        queuePlayer.preventsDisplaySleepDuringVideoPlayback = false
-        // Do not attach SnapshotMirror here. Adding or removing the 32BGRA tap
-        // on a still-playing item hitches 4K HEVC. Owners attach after the
-        // player is on-screen (`scheduleSnapshotResume` / `restoreSnapshotMirror`).
+        // VideoToolbox hardware decode + Metal overlay. Do not attach
+        // SnapshotMirror here — adding/removing a pixel-buffer tap on a
+        // still-playing item hitches 4K HEVC. Owners attach after the player
+        // is on-screen (`scheduleSnapshotResume` / `restoreSnapshotMirror`).
+        AppleGPUPlayback.configure(player: queuePlayer, resolution: settings.resolution)
+        // Composition items already bake displayRate into the timeline and play
+        // at 1.0 — pace at 1.0 so we do not request 10/60s of *shortened* time
+        // per frame. Force the 60 fps cap so 24/30 fps sources drop frames.
+        let pacingRate = composed ? 1.0 : min(max(displayRate, 1), 2)
+        await AppleGPUPlayback.applyFrameRateCap(
+            to: item,
+            asset: item.asset,
+            resolution: settings.resolution,
+            playbackRate: pacingRate,
+            force: composed
+        )
         return PreparedPlayer(
             player: queuePlayer,
             item: item,
@@ -880,8 +912,6 @@ final class WallpaperManager: ObservableObject {
         invalidateTransition(cancelTask: true)
 
         let outLooper = looper
-        let outTimeObserver = timeObserver
-        timeObserver = nil
         looper = nil
         stopBoundaryObserver()
 
@@ -894,14 +924,16 @@ final class WallpaperManager: ObservableObject {
             discardHiddenPlayer(hidden)
             // A newer swap owns manager state — do not restore over it.
             guard swapGeneration == regimeSwapGeneration, player === visiblePlayer else { return }
-            if let obs = timeObserver {
-                hidden.removeTimeObserver(obs)
-                timeObserver = nil
-            }
             looper = nil
-            timeObserver = outTimeObserver
             looper = outLooper
             restoreSnapshotMirror(on: visiblePlayer)
+            if lastBoundaryBounds.length > 0 {
+                armBoundaryObserver(
+                    player: visiblePlayer,
+                    bounds: lastBoundaryBounds,
+                    mode: lastBoundaryMode
+                )
+            }
         }
 
         guard isRegimeSwapCurrent(swapGeneration, visible: visiblePlayer) else {
@@ -914,6 +946,7 @@ final class WallpaperManager: ObservableObject {
         // Scale failed and we were already native — stay on the visible item at ≤2×.
         if !hiddenIsComposition && previousSpeedup <= 1.01 {
             abortHidden()
+            isPlaybackRateCapped = displayRate >= 3
             if isPlaying, player === visiblePlayer {
                 applyChosenRate(to: visiblePlayer)
             }
@@ -994,9 +1027,6 @@ final class WallpaperManager: ObservableObject {
 
         armBoundaryObserver(player: hidden, bounds: bounds, mode: mode)
 
-        if let obs = outTimeObserver {
-            visiblePlayer.removeTimeObserver(obs)
-        }
         visiblePlayer.cancelPendingPrerolls()
         visiblePlayer.pause()
         visiblePlayer.replaceCurrentItem(with: nil)
@@ -1018,11 +1048,9 @@ final class WallpaperManager: ObservableObject {
 
         snapshotMirror.stop()
         stopBoundaryObserver()
+        lastBoundaryBounds = .none
+        lastBoundaryMode = .loop
 
-        if let obs = timeObserver {
-            player?.removeTimeObserver(obs)
-            timeObserver = nil
-        }
         looper = nil
         player?.pause()
         player?.replaceCurrentItem(with: nil)
@@ -1030,6 +1058,7 @@ final class WallpaperManager: ObservableObject {
         sourceAsset = nil
         activeCompositionSpeedup = 1
         compositionSourceOrigin = 0
+        isPlaybackRateCapped = false
 
         wallpaperWindows.forEach { $0.clearPlayer() }
     }
@@ -1048,37 +1077,6 @@ final class WallpaperManager: ObservableObject {
     private func resolvedURL(for video: VideoItem) -> URL? {
         let url = library.url(for: video)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
-    }
-
-    // MARK: – Private: resolution downscale (applied before play)
-
-    /// Applies optional render-size composition and returns when ready (or skipped).
-    private func applyResolution(_ res: VideoResolution,
-                                  to item: AVPlayerItem,
-                                  asset: AVURLAsset) async {
-        guard let targetSize = res.renderSize else { return }
-
-        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let naturalSize = try? await track.load(.naturalSize),
-              let transform   = try? await track.load(.preferredTransform),
-              let composition = try? await AVMutableVideoComposition.videoComposition(
-                  withPropertiesOf: asset
-              )
-        else { return }
-
-        let vidSize = naturalSize.applying(transform)
-        let absSize = CGSize(width: abs(vidSize.width), height: abs(vidSize.height))
-        let scale   = min(targetSize.width  / absSize.width,
-                          targetSize.height / absSize.height,
-                          1.0)
-        composition.renderSize = CGSize(
-            width:  (absSize.width  * scale).rounded(),
-            height: (absSize.height * scale).rounded()
-        )
-
-        // Apply to this item. Callers discard the player if the work is stale
-        // (hidden speed-swap item is not yet self.player.currentItem).
-        item.videoComposition = composition
     }
 
     // MARK: – Private: trim + loop setup
@@ -1102,13 +1100,10 @@ final class WallpaperManager: ObservableObject {
 
         let composedItem = itemIsComposition ?? usesCompositionItem
 
-        // Native items get the optional render-size composition. A per-stop scaled
-        // composition is already a different timebase; skip rather than attach
-        // URL-asset instructions that span the unscaled duration.
-        if !composedItem {
-            await applyResolution(settings.resolution, to: item, asset: asset)
-            if Task.isCancelled { return .none }
-        }
+        // Decoder cap is applied in makePlayer. Re-apply size only — do not
+        // reload tracks here (that serialized on MainActor and stalled fades).
+        AppleGPUPlayback.configure(player: player, resolution: settings.resolution)
+        if Task.isCancelled { return .none }
 
         if composedItem {
             return await setupLoopAndTrimOnComposition(
@@ -1120,10 +1115,16 @@ final class WallpaperManager: ObservableObject {
         }
 
         let hasTrim = trimStart > 0.005 || trimEnd < 0.995
-        let loop    = (mode == .loop)
-        let cycle   = (mode == .cycle)
+        // A one-item library in cycle mode has nothing to advance to — loop
+        // the clip seamlessly instead of freezing on its last frame.
+        let singleItemCycle = (mode == .cycle) && library.videos.count <= 1
+        let loop    = (mode == .loop) || singleItemCycle
+        let cycle   = (mode == .cycle) && !singleItemCycle
 
         func finish(_ bounds: ClipBounds) -> ClipBounds {
+            // Looper copies the template item — re-apply the decoder cap.
+            // Do not nil videoComposition; 240 fps items need the Metal cap.
+            AppleGPUPlayback.configure(player: player, resolution: settings.resolution)
             if applyPlaybackState { applyImmediatePlaybackState(to: player) }
             return bounds
         }
@@ -1165,39 +1166,19 @@ final class WallpaperManager: ObservableObject {
         }
 
         // Non-cycle path with optional trim.
-        if loop {
-            // AVPlayerLooper gives reliable looping so the video never freezes
-            // at item end. The boundary observer fires ~3 s before the end for
-            // the smooth visual transition; the looper is the safety net.
-            player.actionAtItemEnd = .advance
-            looper = hasTrim
-                ? AVPlayerLooper(player: player, templateItem: item,
-                                 timeRange: CMTimeRange(start: startCMT, end: endCMT))
-                : AVPlayerLooper(player: player, templateItem: item)
-            if restartFromTrimStart, bounds.start > 0.005 {
-                _ = await player.seek(to: startCMT,
-                                      toleranceBefore: .zero,
-                                      toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600))
-            }
-        } else {
-            if restartFromTrimStart {
-                _ = await player.seek(to: startCMT,
-                                      toleranceBefore: .zero,
-                                      toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600))
-            }
-            let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-            let endSec   = bounds.end
-            timeObserver = player.addPeriodicTimeObserver(
-                forInterval: interval, queue: .main
-            ) { [weak self] time in
-                guard time.seconds >= endSec - 0.12 else { return }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.player?.pause()
-                    self.userPaused = true
-                    self.isPlaying  = false
-                }
-            }
+        // Looper path: loop mode, or cycle with a single clip. AVPlayerLooper
+        // gives reliable looping so the video never freezes at item end. The
+        // boundary observer fires ~3 s before the end for the smooth visual
+        // transition; the looper is the safety net.
+        player.actionAtItemEnd = .advance
+        looper = hasTrim
+            ? AVPlayerLooper(player: player, templateItem: item,
+                             timeRange: CMTimeRange(start: startCMT, end: endCMT))
+            : AVPlayerLooper(player: player, templateItem: item)
+        if restartFromTrimStart, bounds.start > 0.005 {
+            _ = await player.seek(to: startCMT,
+                                  toleranceBefore: .zero,
+                                  toleranceAfter: CMTime(seconds: 0.1, preferredTimescale: 600))
         }
 
         if Task.isCancelled { return .none }
@@ -1210,6 +1191,7 @@ final class WallpaperManager: ObservableObject {
                                                 mode: PlaybackMode,
                                                 applyPlaybackState: Bool) async -> ClipBounds {
         func finish(_ bounds: ClipBounds) -> ClipBounds {
+            AppleGPUPlayback.configure(player: player, resolution: settings.resolution)
             if applyPlaybackState { applyImmediatePlaybackState(to: player) }
             return bounds
         }
@@ -1223,31 +1205,15 @@ final class WallpaperManager: ObservableObject {
         if Task.isCancelled { return .none }
 
         let bounds = ClipBounds(start: 0, end: duration.seconds)
-        let loop   = (mode == .loop)
-        let cycle  = (mode == .cycle)
+        // Same single-clip cycle rule as the native path: loop, don't freeze.
+        let singleItemCycle = (mode == .cycle) && library.videos.count <= 1
 
-        if cycle {
+        if mode == .cycle, !singleItemCycle {
             return finish(bounds)
         }
 
-        if loop {
-            player.actionAtItemEnd = .advance
-            looper = AVPlayerLooper(player: player, templateItem: item)
-        } else {
-            let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-            let endSec   = bounds.end
-            timeObserver = player.addPeriodicTimeObserver(
-                forInterval: interval, queue: .main
-            ) { [weak self] time in
-                guard time.seconds >= endSec - 0.12 else { return }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.player?.pause()
-                    self.userPaused = true
-                    self.isPlaying  = false
-                }
-            }
-        }
+        player.actionAtItemEnd = .advance
+        looper = AVPlayerLooper(player: player, templateItem: item)
 
         if Task.isCancelled { return .none }
         return finish(bounds)
@@ -1258,6 +1224,8 @@ final class WallpaperManager: ObservableObject {
     private func armBoundaryObserver(player targetPlayer: AVQueuePlayer,
                                       bounds: ClipBounds,
                                       mode: PlaybackMode) {
+        lastBoundaryBounds = bounds
+        lastBoundaryMode = mode
         stopBoundaryObserver()
         guard bounds.length > 0 else { return }
         // Only arm when the mode still wants boundary transitions.
@@ -1360,20 +1328,23 @@ final class WallpaperManager: ObservableObject {
         transitionTask = nil
     }
 
-    /// Aborts a half-applied crossfade without clobbering a newer owner's player.
+    /// Aborts a half-applied crossfade after its player was already adopted.
+    ///
+    /// Ownership rules: `outPlayer` is this task's private capture and nobody
+    /// else pauses it, so it is paused here on every abort path. Its item is
+    /// deliberately kept — its layer may still be visible under a newer fade,
+    /// and clearing it would flash black through that fade. The adopted
+    /// `newPlayer` is never torn down here: a full stop already cleared it, and
+    /// a newer crossfade / speed swap captured it as its outgoing or visible
+    /// base and retires it at its own end-of-fade. Tearing it down here blanks
+    /// the live wallpaper mid-handover and, on a speed swap, leaves playback
+    /// permanently dead (the swap's restore guard sees a cleared player and
+    /// restores nothing). An adopted-but-superseded player therefore stays
+    /// alive until its successor retires it — never left playing unowned.
     private func abandonOutgoing(outPlayer: AVQueuePlayer?,
-                                  outLooper: AVPlayerLooper?,
-                                  newPlayer: AVQueuePlayer?) {
+                                  outLooper: AVPlayerLooper?) {
         outPlayer?.pause()
-        outPlayer?.replaceCurrentItem(with: nil)
         _ = outLooper
-        newPlayer?.pause()
-        newPlayer?.replaceCurrentItem(with: nil)
-        // Only clear manager state if we still own the active player reference.
-        if player === newPlayer {
-            player = nil
-            wallpaperWindows.forEach { $0.clearPlayer() }
-        }
     }
 
     /// Sole crossfade pipeline for user switches and automatic loop/cycle.
@@ -1397,10 +1368,6 @@ final class WallpaperManager: ObservableObject {
         cancelInFlightSpeedSwap()
         stopBoundaryObserver()
 
-        if let obs = timeObserver {
-            outPlayer?.removeTimeObserver(obs)
-            timeObserver = nil
-        }
         looper = nil
 
         let built = await makePlayer(url: url)
@@ -1432,7 +1399,7 @@ final class WallpaperManager: ObservableObject {
         )
 
         guard isTransitionCurrent(generation) else {
-            abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
+            abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper)
             return
         }
 
@@ -1450,7 +1417,7 @@ final class WallpaperManager: ObservableObject {
             userPaused: userPaused,
             autoPauseReasons: autoPauseReasons
         )
-        let prerollRate: Float = usesCompositionItem ? 1.0 : Float(min(max(displayRate, 1), 2))
+        let prerollRate = internalPlaybackRate
 
         if wallpaperWindows.isEmpty {
             applyImmediatePlaybackState(to: newPlayer)
@@ -1460,7 +1427,7 @@ final class WallpaperManager: ObservableObject {
             if shouldPlayNow {
                 _ = await waitUntilReadyToPlay(player: newPlayer, timeout: .milliseconds(400))
                 guard isTransitionCurrent(generation) else {
-                    abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
+                    abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper)
                     return
                 }
                 // Play into the parked layer (do not preroll — that throws
@@ -1470,7 +1437,7 @@ final class WallpaperManager: ObservableObject {
                 isPlaying = true
                 _ = await waitUntilIncomingReadyForDisplay(timeout: .milliseconds(400))
                 guard isTransitionCurrent(generation) else {
-                    abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
+                    abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper)
                     return
                 }
             }
@@ -1484,7 +1451,7 @@ final class WallpaperManager: ObservableObject {
         try? await Task.sleep(for: .seconds(crossfadeDuration + 0.15))
 
         guard isTransitionCurrent(generation) else {
-            abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper, newPlayer: newPlayer)
+            abandonOutgoing(outPlayer: outPlayer, outLooper: outLooper)
             return
         }
 
@@ -1582,10 +1549,50 @@ final class WallpaperManager: ObservableObject {
             .dropFirst()
             .sink { [weak self] enabled in
                 guard let self else { return }
-                self.needsScreenRecordingPermission = enabled && !self.recordingMonitor.hasPermission
-                self.recordingMonitor.evaluate()
+                self.syncRecordingMonitor(enabled: enabled)
             }
             .store(in: &settingsCancellables)
+
+        // Trim changes must take effect on the live clip: the looper's
+        // timeRange and the boundary observer's bounds were armed with the old
+        // fractions (and a ≥3× composition bakes trim in at build time), so
+        // replay the current video — same path as a mode/resolution change.
+        // Debounced because a slider drag fires dozens of updates.
+        settings.$trimStart
+            .combineLatest(settings.$trimEnd)
+            .dropFirst()
+            .removeDuplicates { abs($0.0 - $1.0) < 0.005 && abs($0.1 - $1.1) < 0.005 }
+            .debounce(for: .milliseconds(450), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.reapplyTrimToLivePlayer() }
+            .store(in: &settingsCancellables)
+    }
+
+    /// Trim changed while a clip is up — replay it so trim applies now instead
+    /// of at the next play. No-op when nothing is playing; trim then applies
+    /// at the next play as before.
+    private func reapplyTrimToLivePlayer() {
+        guard let video = currentVideo else { return }
+        debugTrimReapplies += 1
+        play(video: video)
+    }
+
+    /// Number of live trim re-applications (regression-test introspection).
+    private(set) var debugTrimReapplies = 0
+
+
+    /// Starts or stops the recording-detection poller to match the setting.
+    /// Polling `CGWindowListCopyWindowInfo` every 2 s for a feature that is off
+    /// for the whole session is perpetual busywork, so the monitor only runs
+    /// while "Pause During Screen Recording" is enabled.
+    private func syncRecordingMonitor(enabled: Bool) {
+        if enabled {
+            recordingMonitor.start()
+            needsScreenRecordingPermission = !recordingMonitor.hasPermission
+        } else {
+            recordingMonitor.stop()
+            setAutoPause(.recording, active: false)
+            needsScreenRecordingPermission = false
+        }
     }
 
     // MARK: – Private: window management
@@ -1638,14 +1645,43 @@ final class WallpaperManager: ObservableObject {
             self.lastScreenSignature = newSignature
 
             if sameScreenCount {
-                for (window, screen) in zip(self.wallpaperWindows, NSScreen.screens) {
-                    window.updateFrame(for: screen)
-                }
+                self.reflowWindowsToScreens()
             } else {
                 self.createWallpaperWindows()
                 if let video = self.currentVideo { self.play(video: video) }
             }
         }
+    }
+
+    /// Re-pairs windows to screens by display identity, not array position:
+    /// `wallpaperWindows` was built in the screen order at creation time, and
+    /// after a rearrangement (count unchanged, order/frames differ) a
+    /// positional zip hands each window the wrong screen's frame.
+    private func reflowWindowsToScreens() {
+        var screenByID: [CGDirectDisplayID: NSScreen] = [:]
+        for screen in NSScreen.screens {
+            if let id = Self.displayID(of: screen) {
+                screenByID[id] = screen
+            }
+        }
+        var unmatchedWindows: [WallpaperWindow] = []
+        for window in wallpaperWindows {
+            if let screen = screenByID[window.displayID] {
+                window.updateFrame(for: screen)
+                screenByID[window.displayID] = nil
+            } else {
+                unmatchedWindows.append(window)
+            }
+        }
+        // Hot-swapped display with an unchanged count: pair leftovers in order.
+        for (window, screen) in zip(unmatchedWindows, screenByID.values) {
+            window.updateFrame(for: screen)
+        }
+    }
+
+    static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+            as? NSNumber)?.uint32Value
     }
 
     // MARK: – Private: legacy wallpaper restore
@@ -1763,11 +1799,36 @@ final class WallpaperManager: ObservableObject {
     /// Display-rate speedup baked into the current item (1 if native).
     var debugCompositionSpeedup: Double { activeCompositionSpeedup }
 
+    /// VideoToolbox decoder cap on the current item (`.zero` if none).
+    var debugPreferredMaximumResolution: CGSize {
+        player?.currentItem?.preferredMaximumResolution ?? .zero
+    }
+
+    /// True when a video composition is attached (CPU compositor path).
+    var debugUsesVideoComposition: Bool {
+        player?.currentItem?.videoComposition != nil
+    }
+
+    /// Live `AVQueuePlayer.rate` (0 if no player).
+    var debugPlayerRate: Float { player?.rate ?? 0 }
+
+    /// Playhead in seconds (−1 if no player).
+    var debugPlayerSeconds: Double { player?.currentTime().seconds ?? -1 }
+
+    /// True while a loop/cycle boundary observer is attached.
+    var debugHasBoundaryObserver: Bool { boundaryObserver != nil }
+
+    /// True while an AVPlayerLooper is attached (loop mode).
+    var debugHasLooper: Bool { looper != nil }
+
     /// Whether a user or auto crossfade currently owns the transition gate.
     var debugTransitionInProgress: Bool { transitionInProgress }
 
     /// Active auto-pause holds (battery / recording).
     var debugAutoPauseReasons: Set<PauseReason> { autoPauseReasons }
+
+    /// True when the slider promises ≥3× but playback is capped at 2×.
+    var debugIsPlaybackRateCapped: Bool { isPlaybackRateCapped }
 
     /// Applies a hold the same way monitors do (for integration tests).
     func debugSetAutoPause(_ reason: PauseReason, active: Bool) {

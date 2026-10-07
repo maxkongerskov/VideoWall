@@ -73,7 +73,7 @@ Click the ⚙ gear in the top-right of the popover to open Settings:
 | Play on All Spaces | Video follows you across Mission Control spaces |
 | Pause on Battery | Stops playback when on battery to save power |
 | Pause During Screen Recording | Prevents the wallpaper from appearing in recordings |
-| Resolution | Downscales render output via AVVideoComposition (saves GPU) |
+| Resolution | Caps VideoToolbox hardware decode via preferredMaximumResolution (Metal overlay) |
 
 ---
 

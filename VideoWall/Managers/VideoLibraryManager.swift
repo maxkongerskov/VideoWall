@@ -169,7 +169,11 @@ final class VideoLibraryManager: ObservableObject {
         // Avoid both on-disk files and names reserved by an in-flight import.
         while FileManager.default.fileExists(atPath: dest.path)
                 || importingFilenames.contains(dest.lastPathComponent) {
-            dest = libraryDir.appendingPathComponent("\(base)_\(counter).\(ext)")
+            // Extensionless files must not get a trailing dot ("noext_1.").
+            let collisionName = ext.isEmpty
+                ? "\(base)_\(counter)"
+                : "\(base)_\(counter).\(ext)"
+            dest = libraryDir.appendingPathComponent(collisionName)
             counter += 1
         }
         return dest
@@ -245,7 +249,9 @@ final class VideoLibraryManager: ObservableObject {
         }
     }
 
-    /// Scans libraryDir for video files not yet tracked in `videos`.
+    /// Scans libraryDir for video files not yet tracked in `videos`, and drops
+    /// tracked entries whose file has vanished (Finder deletions) so the
+    /// in-session library matches the disk.
     private func syncNewFilesFromDisk() async {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
@@ -254,7 +260,19 @@ final class VideoLibraryManager: ObservableObject {
             options:                    .skipsHiddenFiles
         ) else { return }
 
+        let onDisk = Set(contents.map(\.lastPathComponent))
         let knownFilenames = Set(videos.map { $0.filename })
+
+        // Reconcile deletions: entries whose file is gone leave the library.
+        let vanished = videos.filter { !onDisk.contains($0.filename) }
+        if !vanished.isEmpty {
+            for item in vanished {
+                VideoItem.evictThumbnail(id: item.id)
+            }
+            videos.removeAll { item in vanished.contains { $0.id == item.id } }
+            onVideosRemoved?(Set(vanished.map(\.id)))
+            saveMetadata()
+        }
 
         var addedAny = false
         for fileURL in contents {
@@ -292,7 +310,12 @@ final class VideoLibraryManager: ObservableObject {
     private func loadMetadata() {
         guard let data = try? Data(contentsOf: metadataURL),
               let decoded = try? JSONDecoder().decode([VideoItem].self, from: data)
-        else { return }
+        else {
+            if FileManager.default.fileExists(atPath: metadataURL.path) {
+                importError = "The video library index is unreadable and will be rebuilt."
+            }
+            return
+        }
 
         videos = decoded.filter {
             FileManager.default.fileExists(atPath: url(for: $0).path)
@@ -300,7 +323,16 @@ final class VideoLibraryManager: ObservableObject {
     }
 
     private func saveMetadata() {
-        guard let data = try? JSONEncoder().encode(videos) else { return }
-        try? data.write(to: metadataURL, options: .atomic)
+        guard let data = try? JSONEncoder().encode(videos) else {
+            importError = "Couldn't save the video library index."
+            return
+        }
+        do {
+            try data.write(to: metadataURL, options: .atomic)
+        } catch {
+            // Silent persistence failure loses the whole library index on next
+            // launch (full disk, permissions); surface it like an import error.
+            importError = "Couldn't save the video library index: \(error.localizedDescription)"
+        }
     }
 }

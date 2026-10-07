@@ -3,7 +3,7 @@ import AppKit
 
 // MARK: - VideoResolution
 
-enum VideoResolution: String, CaseIterable, Codable {
+enum VideoResolution: String, CaseIterable, Codable, Sendable {
     case original = "Original"
     case uhd4k    = "4K"
     case fhd1080  = "1080p"

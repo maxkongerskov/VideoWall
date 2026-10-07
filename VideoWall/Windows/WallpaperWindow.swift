@@ -1,9 +1,21 @@
 import AppKit
 import AVFoundation
 
+// MARK: - DesktopFillWindow
+//
+// Borderless desktop windows must not be pushed below the menu bar / camera
+// housing. Tahoe 26's default constrainFrameRect does exactly that, which
+// leaves a system frost strip at the top of notched MacBooks.
+
+final class DesktopFillWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+}
+
 // MARK: - WallpaperWindow
 //
-// Wraps a plain NSWindow (never subclasses — Tahoe ARC rules).
+// Wraps DesktopFillWindow (defer: true, isReleasedWhenClosed = false — Tahoe ARC).
 //
 // Each AVQueuePlayer lives inside a container CALayer so Core Image filters
 // (CIGaussianBlur) can be applied to the composed video frame for the
@@ -40,13 +52,24 @@ final class WallpaperWindow {
     /// don't leave orphaned blurred layers in the window.
     private var outgoingContainer: CALayer?
 
+    /// Bumped by every new fade / layer transition so a delayed cleanup Task
+    /// from a superseded fade cannot mutate layers a newer fade is animating
+    /// (it would clear the new fade's outgoing blur mid-animation).
+    private var crossfadeEpoch = 0
+
+    /// Display this window was created for; re-pairing after a display
+    /// rearrangement matches on this instead of array position.
+    let displayID: CGDirectDisplayID
+
     /// A plain CALayer that mirrors the current video frame at a low frame rate.
     private let snapshotLayer = CALayer()
 
     // MARK: Init
 
     init(screen: NSScreen) {
-        window = NSWindow(
+        displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+            as? NSNumber)?.uint32Value ?? 0
+        window = DesktopFillWindow(
             contentRect: screen.frame,
             styleMask:   .borderless,
             backing:     .buffered,
@@ -57,7 +80,7 @@ final class WallpaperWindow {
         )
         window.collectionBehavior = Self.behavior(allSpaces: true)
         window.isOpaque             = false
-        window.backgroundColor      = .clear   // transparent when no content — shows real wallpaper
+        window.backgroundColor      = .clear   // idle: show the real wallpaper
         window.ignoresMouseEvents   = true
         window.isReleasedWhenClosed = false
         window.hasShadow            = false
@@ -66,9 +89,13 @@ final class WallpaperWindow {
         window.isMovable            = false
         // Public API: keep the window eligible for the login / lock screen.
         window.canBecomeVisibleWithoutLogin = true
+        // Menu-bar glass samples this window. Light appearance + a clear
+        // backing composites as a white frost on notched MacBooks.
+        window.appearance = NSAppearance(named: .darkAqua)
 
-        let host = NSView(frame: screen.frame)
+        let host = WallpaperHostView(frame: NSRect(origin: .zero, size: screen.frame.size))
         host.wantsLayer = true
+        host.autoresizingMask = [.width, .height]
         if let layer = host.layer {
             layer.backgroundColor = NSColor.clear.cgColor
         }
@@ -78,7 +105,7 @@ final class WallpaperWindow {
         snapshotLayer.masksToBounds    = true
         snapshotLayer.backgroundColor  = NSColor.clear.cgColor
         snapshotLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        
+
         if let layer = host.layer {
             layer.addSublayer(snapshotLayer)
         }
@@ -90,7 +117,12 @@ final class WallpaperWindow {
 
     // MARK: Lifecycle
 
-    func show() { window.orderFront(nil) }
+    func show() {
+        window.orderFront(nil)
+        if let screen = window.screen {
+            updateFrame(for: screen)
+        }
+    }
     func hide() { window.orderOut(nil)  }
 
     // MARK: – Direct player assignment (no transition)
@@ -98,6 +130,7 @@ final class WallpaperWindow {
     func setPlayer(_ player: AVQueuePlayer) {
         guard let hostLayer = window.contentView?.layer else { return }
 
+        applyFillChrome(playing: true)
         cancelInFlightLayerTransition()
 
         let outgoing = activeContainer
@@ -118,6 +151,7 @@ final class WallpaperWindow {
     /// / real wallpaper). Used by the speed-slider dual-player swap.
     func attachIncomingUnderActive(_ player: AVQueuePlayer) {
         guard let hostLayer = window.contentView?.layer else { return }
+        applyFillChrome(playing: true)
         cancelInFlightLayerTransition()
 
         let bounds = hostLayer.bounds
@@ -176,6 +210,7 @@ final class WallpaperWindow {
     /// Drops leftover crossfade / speed-swap layers without touching the live
     /// player. The delayed crossfade cleanup Task is then a no-op.
     func cancelInFlightLayerTransition() {
+        crossfadeEpoch += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if pendingContainer !== activeContainer {
@@ -192,6 +227,7 @@ final class WallpaperWindow {
     }
 
     func clearPlayer() {
+        crossfadeEpoch += 1
         // AVPlayerLayer.player is optional in this SDK — use if-let.
         if let player = activePlayerLayer?.player {
             player.pause()
@@ -207,6 +243,7 @@ final class WallpaperWindow {
         pendingPlayerLayer = nil
         outgoingContainer  = nil
         snapshotLayer.contents = nil
+        applyFillChrome(playing: false)
     }
 
     /// Updates the back-most mirror layer with a still of the current video
@@ -291,13 +328,19 @@ final class WallpaperWindow {
 
         CATransaction.commit()
 
+        crossfadeEpoch += 1
+        let epoch = crossfadeEpoch
+
         Task { [weak self, weak outContainer, weak inContainer] in
             try? await Task.sleep(nanoseconds: UInt64((duration + 0.15) * 1_000_000_000))
+            // A newer fade or player change took over the layer stack — it owns
+            // retiring these layers now.
+            guard let self, self.crossfadeEpoch == epoch else { return }
 
             outContainer?.removeFromSuperlayer()
+            outContainer?.filters = nil
             if useBlur { inContainer?.filters = nil }
 
-            guard let self else { return }
             if self.pendingContainer === inContainer {
                 self.pendingContainer = nil
                 self.pendingPlayerLayer = nil
@@ -372,14 +415,35 @@ final class WallpaperWindow {
         let container               = CALayer()
         container.frame             = expanded
         container.masksToBounds     = false
+        container.backgroundColor   = NSColor.black.cgColor
+        // Opaque black lets Core Animation keep AVPlayerLayer on the
+        // VideoToolbox/Metal overlay (no offscreen blend).
+        container.isOpaque          = true
 
         let avLayer                 = AVPlayerLayer(player: player)
         avLayer.frame               = CGRect(origin: .zero, size: expanded.size)
         avLayer.videoGravity        = .resizeAspectFill
         avLayer.autoresizingMask    = [.layerWidthSizable, .layerHeightSizable]
+        avLayer.backgroundColor     = NSColor.black.cgColor
+        avLayer.isOpaque            = true
         container.addSublayer(avLayer)
 
         return (container, avLayer)
+    }
+
+    /// Opaque black while a player is attached so Tahoe's menu-bar glass
+    /// samples video/black instead of a clear Light-mode window (white frost),
+    /// and so the video layer can stay on the hardware overlay.
+    private func applyFillChrome(playing: Bool) {
+        window.isOpaque = playing
+        window.backgroundColor = playing ? .black : .clear
+        let fill = (playing ? NSColor.black : NSColor.clear).cgColor
+        window.contentView?.layer?.backgroundColor = fill
+        window.contentView?.layer?.isOpaque = playing
+        snapshotLayer.backgroundColor = fill
+        snapshotLayer.isOpaque = playing
+        activeContainer?.isOpaque = playing
+        activePlayerLayer?.isOpaque = playing
     }
 
     private func attachBlur(radius: CGFloat, to layer: CALayer) {
@@ -418,4 +482,10 @@ final class WallpaperWindow {
         a.isRemovedOnCompletion  = false
         return a
     }
+}
+
+/// Content view that ignores the camera-housing / menu-bar safe area so the
+/// video fills `screen.frame` on notched MacBooks.
+final class WallpaperHostView: NSView {
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsets() }
 }

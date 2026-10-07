@@ -15,9 +15,11 @@ final class WallpaperIntegrationTests: XCTestCase {
     private var settings: AppSettings!
     private var library: VideoLibraryManager!
     private var wallpaper: WallpaperManager!
+    private var defaultsSnapshot = UserDefaultsSnapshot()
 
     override func setUp() async throws {
         try await super.setUp()
+        defaultsSnapshot.capture()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("VideoWallIT-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -41,6 +43,7 @@ final class WallpaperIntegrationTests: XCTestCase {
         wallpaper.stop()
         library.stopWatching()
         try? FileManager.default.removeItem(at: tempRoot)
+        defaultsSnapshot.restore()
         try await super.tearDown()
     }
 
@@ -184,13 +187,24 @@ final class WallpaperIntegrationTests: XCTestCase {
         XCTAssertTrue(wallpaper.debugHasActivePlayer)
         XCTAssertGreaterThan(
             wallpaper.debugCompositionSpeedup, 1.01,
-            "3× must rebuild a scaled composition so preroll runs on the hidden player"
+            "3× must rebuild a scaled composition so 4K HEVC is not decoded at 3×"
+        )
+        XCTAssertEqual(wallpaper.debugPlayerRate, 1, accuracy: 0.15)
+        XCTAssertEqual(
+            wallpaper.debugPreferredMaximumResolution,
+            AppleGPUPlayback.decoderCap(for: settings.resolution)
+        )
+        XCTAssertTrue(
+            wallpaper.debugUsesVideoComposition,
+            "scaled 3× item keeps a 60 fps Fig passthrough so source frames are dropped"
         )
 
         wallpaper.setPlaybackRate(10)
         try await waitUntil("10× swap finished", timeout: 8) { !wallpaper.debugRateSwapInFlight }
         XCTAssertEqual(settings.playbackRate, 10)
         XCTAssertTrue(wallpaper.debugHasActivePlayer)
+        XCTAssertGreaterThan(wallpaper.debugCompositionSpeedup, 1.01)
+        XCTAssertEqual(wallpaper.debugPlayerRate, 1, accuracy: 0.15)
 
         wallpaper.setPlaybackRate(1)
         try await waitUntil("1× swap finished", timeout: 8) { !wallpaper.debugRateSwapInFlight }
@@ -198,6 +212,7 @@ final class WallpaperIntegrationTests: XCTestCase {
         XCTAssertTrue(wallpaper.debugHasActivePlayer)
         XCTAssertLessThan(wallpaper.debugCompositionSpeedup, 1.01,
                           "native 1× item must not keep a scaled composition")
+        XCTAssertEqual(wallpaper.debugPlayerRate, 1, accuracy: 0.15)
     }
 
     func testRapidPlaySwitchThenStop() async throws {
